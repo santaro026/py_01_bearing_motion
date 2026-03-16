@@ -26,10 +26,44 @@ import sys
 from pathlib import Path
 import time
 
-if __name__ == '__main__':
-    import mytools, myplotter, mycoord, config
-else:
-    import mytools, myplotter, mycoord
+from mymods import mycoord, myplotter
+
+def make_cage_points(num_frames, num_points, x_value, a, b, deform_angle, transformer, p0_angle=np.pi/2, endpoint=False):
+    p_lcs = np.full((num_frames, num_points, 3), np.nan) # points of pockets on local coordinate system
+    p_global = np.full((num_frames, num_points, 3), np.nan)
+    pos_points = np.linspace(0, 2*np.pi, num_points, endpoint=endpoint) + p0_angle
+    if deform_angle is not 0:
+        rot_euler_for_ellipse = np.vstack([deform_angle, np.zeros(num_frames), np.zeros(num_frames)]).T
+    for i in range(num_points):
+        _x = np.full(num_frames, x_value)
+        _theta = np.full(num_frames, pos_points[i])
+        _y = a * np.cos(_theta)
+        _z = b * np.sin(_theta)
+        p_lcs[:, i, :] = np.vstack([_x, _y, _z]).T
+        if deform_angle is not 0:
+            p_lcs[:, i, :] = mycoord.CoordTransformer3D.rotate_euler(p_lcs[:, i, :], euler_angles=rot_euler_for_ellipse, rot_order="zyx")
+        p_global[:, i, :] = transformer.transform_coord(p_lcs[:, i, :], towhich='toglobal')
+    return p_global, p_lcs
+
+def make_cage_points(num_frames, num_points, x_value, a, b, deform_angle, transformer, p0_angle=np.pi/2, endpoint=False):
+    p_lcs = np.full((num_frames, num_points, 3), np.nan) # points of pockets on local coordinate system
+    p_global = np.full((num_frames, num_points, 3), np.nan)
+    pos_points = np.linspace(0, 2*np.pi, num_points, endpoint=endpoint) + p0_angle
+    if deform_angle is not 0:
+        rot_euler_for_ellipse = np.vstack([deform_angle, np.zeros(num_frames), np.zeros(num_frames)]).T
+    for i in range(num_points):
+        _x = np.full(num_frames, x_value)
+        _theta = np.full(num_frames, pos_points[i])
+        _y = a * np.cos(_theta)
+        _z = b * np.sin(_theta)
+        p_lcs[:, i, :] = np.vstack([_x, _y, _z]).T
+        if deform_angle is not 0:
+            p_lcs[:, i, :] = mycoord.CoordTransformer3D.rotate_euler(p_lcs[:, i, :], euler_angles=rot_euler_for_ellipse, rot_order="zyx")
+        p_global[:, i, :] = transformer.transform_coord(p_lcs[:, i, :], towhich='toglobal')
+    return p_global, p_lcs
+
+# transformer = mycoord.CoordTransformer2D(coordsys_name="cage_coordsys", local_origin=np.zeros(2), theta=self.pos_pockets)
+
 
 class SimpleCage:
     def __init__(self, name='', PCD=50, ID=48, OD=52, width=10, num_pockets=8, num_markers=8, num_mesh=100, Dp=6.25, Dw=5.953):
@@ -48,7 +82,6 @@ class SimpleCage:
         self.pos_pockets = np.linspace(0, 2*np.pi, self.num_pockets, endpoint=False) + np.pi/2
         self.pos_markers = np.linspace(0, 2*np.pi, self.num_markers, endpoint=False) + np.pi/2
         self.pos_node = np.linspace(0, 2*np.pi, self.num_nodes, endpoint=True) + np.pi/2
-
     @staticmethod
     def omega2p(omega, r, dt, num_frames=None):
         omega = np.full(num_frames, omega) if np.ndim(omega) == 0 else omega
@@ -57,13 +90,11 @@ class SimpleCage:
         z = r * np.sin(angle_rev + np.pi/2)
         x = np.zeros_like(y)
         return np.vstack([x, y, z]).T
-
     @staticmethod
     def p2omega(p, dt):
         angle = np.unwrap(np.arctan2(p[:, 2], p[:, 1]))
         omega = np.gradient(angle, dt)
         return omega
-
     @staticmethod
     def make_cage_points(num_frames, num_points, x_value, a, b, deform_angle, transformer, p0_angle=np.pi/2, endpoint=False):
         p_lcs = np.full((num_frames, num_points, 3), np.nan) # points of pockets on local coordinate system
@@ -385,7 +416,6 @@ if __name__ == '__main__':
     # cage.time_series_data2(fps=param.fps, duration=param.duration, omega_rot=param.omega_rot, omega_rev=param.omega_rev, r_rev=param.r_rev, a=param.a, b=param.b, omega_deform=param.omega_deform, noise_type=param.noise_type, noise_max=param.noise_max)
     cage.time_series_data2(fps=16000, duration=1, omega_rot=100*np.pi, omega_rev=1000*np.pi, r_rev=1, a=1.05, b=0.95, omega_deform=1000*np.pi, noise_type="normal", noise_max=1)
 
-    ani = cage.make_ani_trajectories(num_frames=1000, interval=1000/30, skip=1, disp_max=None, center_scale=10, xyrange=(-30, 30), xytick=5, xysigf=0, markersize=None, color='r', coordsys='rotframeSA', markers_type='ideal')
     # fig = cage.plot_trajectory()
     # fig = cage.plot_markers(pltrange=(0, 10))
 

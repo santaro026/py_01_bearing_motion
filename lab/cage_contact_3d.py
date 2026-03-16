@@ -29,7 +29,7 @@ from sympy import Point, Line, Circle, sqrt
 from sympy import Point3D, Line3D, Plane
 from sympy import Matrix, sin, cos, tan, rad, asin, acos, atan2
 
-from santamods import mycoord, myplotter, mylogger
+from mymods import mycoord, myplotter, mylogger
 import config
 
 x_axis = Line3D(Point3D(0, 0, 0), direction_ratio=[1, 0, 0])

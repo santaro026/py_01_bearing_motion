@@ -19,26 +19,8 @@ from sympy import Point, Circle, Line, Segment, sqrt
 from sympy import Point3D, Line3D, Plane
 from sympy import Matrix, sin, cos, tan
 
-from santamods import mycoord, myplotter
+from mymods import mycoord, myplotter
 
-def make_cage_points(num_frames, num_points, x_value, a, b, deform_angle, transformer, p0_angle=np.pi/2, endpoint=False):
-    p_lcs = np.full((num_frames, num_points, 3), np.nan) # points of pockets on local coordinate system
-    p_global = np.full((num_frames, num_points, 3), np.nan)
-    pos_points = np.linspace(0, 2*np.pi, num_points, endpoint=endpoint) + p0_angle
-    if deform_angle != 0:
-        rot_euler_for_ellipse = np.vstack([deform_angle, np.zeros(num_frames), np.zeros(num_frames)]).T
-    for i in range(num_points):
-        _x = np.full(num_frames, x_value)
-        _theta = np.full(num_frames, pos_points[i])
-        _y = a * np.cos(_theta)
-        _z = b * np.sin(_theta)
-        p_lcs[:, i, :] = np.vstack([_x, _y, _z]).T
-        if deform_angle != 0:
-            p_lcs[:, i, :] = mycoord.CoordTransformer3D.rotate_euler(p_lcs[:, i, :], euler_angles=rot_euler_for_ellipse, rot_order="zyx")
-        p_global[:, i, :] = transformer.transform_coord(p_lcs[:, i, :], towhich='toglobal')
-    return p_global, p_lcs
-
-# transformer = mycoord.CoordTransformer2D(coordsys_name="cage_coordsys", local_origin=np.zeros(2), theta=self.pos_pockets)
 
 class ARing:
     def __init__(self, name="", PCD=50, ID=48, OD=52,  R=3.2):
