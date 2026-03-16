@@ -1,6 +1,7 @@
 """
-Created on Wed Aug 27 08:42:28 2025
-@author: honda-shin
+Created on Fri Mar 06 18:40:44 2026
+@author: santaro
+
 
 this module helps format frequently used plots to improve redability and consistency.
 
@@ -17,10 +18,10 @@ import re
 from pathlib import Path
 import json
 
-from sintamods import mytools
-from sintamods import myfitting
-from sintamods import mydataclass
-from sintamods import myplot
+from mymods import mytools
+from mymods import myfitting
+from mymods import mydataclass
+from mymods import myplot
 
 import config
 from testcondition_loader import TestCondition
@@ -45,14 +46,12 @@ class PlotterForCageVisualization(myplot.PlotterForCage):
             ax.scatter(x[i], y[i], c=colors[i], s=40, alpha=0.8, marker='+', zorder=10)
         return ax
 
-    def __init__(self, testcond, json_path=None, xyrange_trj=(-0.6, 0.6), xyrange_markers=(-30, 30), notell="", notelr=""):
-        json_path = config.ROOT / 'assets' / 'plot_settings.json'
+    def __init__(self, testcond=None, json_path=None, xyrange_trj=(-0.6, 0.6), xyrange_markers=(-30, 30), notell="", notelr=""):
+        json_path = config.ROOT / 'config' / 'plot_settings.json'
         super().__init__(json_path)
         self.xyrange_trj = xyrange_trj
         self.xyrange_markers = xyrange_markers
         self.testcond = testcond
-        self.notell = notell
-        self.notelr = notelr
         if self.testcond.Dp_measured:
             self.Dp = self.testcond.Dp_measured
             self.note_Dp = 'Dp is measured.'
@@ -79,10 +78,11 @@ class PlotterForCageVisualization(myplot.PlotterForCage):
         self.dl = self.testcond.PCD + self.testcond.Dw - self.Dl
         self.note_DpDl = f'{self.note_Dp} {self.note_Dl}'
         self.dp_list, self.dl_list = PlotterForCageVisualization.convert_2list(self.dp, self.dl)
-
         num_dp, num_dl = len(self.dp_list), len(self.dl_list)
         self.auxiliary_circles_radii = [d for d in (self.dp_list+self.dl_list)]
         self.auxiliary_circles_colors = ['b']*num_dp + ['r']*num_dl
+        self.notell = notell
+        self.notelr = notelr
 
     # def make_auxiliary_circles_list(self):
     #     num_dp, num_dl = len(self.dp_list), len(self.dl_list)
@@ -136,3 +136,4 @@ if __name__ == '__main__':
     fig, ax = plotter.trajectory(p)
 
     plt.show()
+

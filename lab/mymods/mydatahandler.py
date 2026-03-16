@@ -9,16 +9,12 @@ Created on Sat Nov 29 13:14:50 2025
 import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import scipy
-from scipy import signal
-from pydub import AudioSegment
 
 import re
 from pathlib import Path
 from dataclasses import dataclass, field
-
-from mymods import myfitting
+from typing import Dict, List, Optional, Iterable, Tuple, Union
 
 import config
 
@@ -35,48 +31,20 @@ class DataMapLoader:
             pl.col("commanded_rot_speed").cast(pl.Int32, strict=False),
             pl.col("fps").cast(pl.Int32, strict=False),
             pl.col("recording_number").cast(pl.Int32, strict=False),
-            pl.col("sample_rate").cast(pl.Int32, strict=False),
-            #### sound flag based on auditory input
-            pl.col("CG").cast(pl.String, strict=False),
-            pl.col("CGL").cast(pl.String, strict=False),
-            pl.col("CGW").cast(pl.String, strict=False),
-            pl.col("CGR").cast(pl.String, strict=False),
-            pl.col("CGQ").cast(pl.String, strict=False),
-            pl.col("CGQ2").cast(pl.String, strict=False),
-            pl.col("CGT").cast(pl.String, strict=False),
-            pl.col("Q").cast(pl.String, strict=False),
-            pl.col("CK").cast(pl.String, strict=False),
-            #### motihon flag based on high-speed camera data, plot-visual-based qualitative assessment
-            pl.col("high_speed_whirl").cast(pl.String, strict=False),
-            pl.col("cage_resonance").cast(pl.String, strict=False),
-            pl.col("gravity_vibration").cast(pl.String, strict=False),
+            pl.col("sample_rate").cast(pl.Int32, strict=False)
         ).drop_nulls(subset=["test_code"])
-        df_summary = pl.read_excel(datamapfile, sheet_name="summary", has_header=True, drop_empty_cols=True, drop_empty_rows=True, infer_schema_length=1000)
-        summary = df_summary.select(
-            pl.col("test_code").cast(pl.Int32, strict=False),
-            pl.col("date").cast(pl.String, strict=False),
-            pl.col("cage").cast(pl.String, strict=False),
-            pl.col("material").cast(pl.String, strict=False),
-            pl.col("detail").cast(pl.String, strict=False),
-            pl.col("Dp_measured").cast(pl.Float64, strict=False),
-            pl.col("dl_measured").cast(pl.Float64, strict=False),
-            pl.col("Dp_drawing").cast(pl.Float64, strict=False),
-            pl.col("dl_drawing").cast(pl.Float64, strict=False),
-            pl.col("noise_result").cast(pl.String, strict=False),
-        ).drop_nulls(subset=["test_code"])
-        return datamap, summary
+        return datamap
+
     def __init__(self, datamap_path):
         self._datamap_path = datamap_path
-        self._datamap, self._summary = DataMapLoader.load_datamap(self._datamap_path)
+        self._datamap = DataMapLoader.load_datamap(self._datamap_path)
+
     @property
     def datamap_path(self):
         return self._datamap_path
     @property
     def datamap(self):
         return self._datamap
-    @property
-    def summary(self):
-        return self._summary
 
     def extract_info_from_tcsc(self, tc, sc):
         info = self.datamap.filter((pl.col("test_code") == tc) & (pl.col("shooting_code") == sc)).to_dicts()
@@ -92,14 +60,6 @@ class DataMapLoader:
             raise ValueError(f"no data was found in datamap by rec{rec}.")
         elif len(info) > 1:
             raise RuntimeError(f"multiple data ({len(info)} was found by rec{rec}.")
-        return info[0]
-
-    def extract_test_info(self, tc):
-        info = self.summary.filter((pl.col("test_code")) == tc).to_dicts()
-        if len(info) == 0:
-            raise ValueError(f"no data was found in datamap by tc{tc}.")
-        elif len(info) > 1:
-            raise RuntimeError(f"multiple data ({len(info)} was found by tc{tc}.")
         return info[0]
 
     def __repr__(self):
@@ -129,7 +89,7 @@ class CoordDataLoader:
         return fps, rpm, rec
 
     @staticmethod
-    def load_markers(data_path=None, data_format="tema", num_cage_markers=8, dimension=2):
+    def load_markers(data_path=None, data_format="tema", num_cage_markers=8):
         if data_format == "tema":
             skip_rows = 3
             skip_data = 0
@@ -139,31 +99,34 @@ class CoordDataLoader:
         if t[0] != 0:
             raise ValueError(f"loaded data does not start from 0 [sec], {data_path}, start form {t[0]}")
         points = data[:, 1:]
-        if points.shape[1] % dimension == 0: # check data shape
-            num_points = points.shape[1] // dimension
+        if len(points[0]) % 2 == 0: # check data shape
+            num_points = len(points[0]) // 2
             num_ring_markers = num_points - num_cage_markers
             if not (num_points == num_cage_markers or num_points == num_cage_markers + 1):
                 raise RuntimeError(f"loading data shape does not match: {data_path}, num_points is {num_points}")
         else:
             raise RuntimeError(f"the number of coordinate data points is odd, confirm the input data: {data_path}")
         num_frames = len(t)
-        points = points.reshape((num_frames, num_points, dimension))
+        points = points.reshape((num_frames, num_points, 2))
         cage_markers = points[:, :num_cage_markers]
         if num_ring_markers > 0:
-            ring_markers = points[:, num_cage_markers:num_cage_markers+num_ring_markers]
+            ring_markers = data[:, num_cage_markers:num_cage_markers+num_ring_markers]
         else:
             ring_markers = None
         return t, cage_markers, ring_markers
 
     @staticmethod
-    def load_markers_zero(data_path, data_format="tema", num_cage_markers=8, dimension=2):
+    def load_markers_zero(data_path, data_format="tema", num_cage_markers=8):
         if data_format == "tema":
-            data = pl.read_csv(data_path, has_header=False, skip_rows=3, separator='\t', infer_schema_length=10).cast(pl.Float64, strict=False).to_numpy()[:, 1:]
-            cage_markers = data[:-1, :dimension].astype(float)[np.newaxis, :, :]
-            ring_center = data[-1, :dimension].astype(float)[np.newaxis, np.newaxis, :]
-            ring_area = data[-1, dimension].astype(float) # float
-            if cage_markers.shape[1] != num_cage_markers:
-                raise RuntimeError(f"loading data shape does not match: {data_path}")
+            data = pl.read_csv(data_path, has_header=False, skip_rows=3, separator='\t', infer_schema_length=10).cast(pl.Float64, strict=False).to_numpy()[:, 1:].astype(float)
+            cage_markers = data[:-1, :2].astype(float)
+            ring_center = data[-1, :2].astype(float)
+            ring_area = data[-1, 2].astype(float)
+            if len(cage_markers) % 2 == 0:
+                if len(cage_markers) != num_cage_markers:
+                    raise RuntimeError(f"loading data shape does not match: {data_path}")
+            else:
+                raise RuntimeError(f"loading data shape does not match, number of points data is odd: {data_path}")
         return cage_markers, ring_center, ring_area
 
     @staticmethod
@@ -172,24 +135,22 @@ class CoordDataLoader:
             scaling_factor_pixel2mm = np.sqrt(reference_value/measured_value)
         return scaling_factor_pixel2mm
 
-    def __init__(self, data_path, zero_data_path, data_format="tema", num_cage_markers=8, zero_data_format="tema", pixel2mm_reference_mode="area", reference_value=np.pi*(49.1/2)**2, dimension=2):
+    def __init__(self, data_path, zero_data_path, data_format="tema", num_cage_markers=8, zero_data_format="tema", pixel2mm_reference_mode="area", reference_value=np.pi*(49.1/2)**2):
         self._data_path = data_path
         self._zero_data_path = zero_data_path
         self._tc, self._sc = CoordDataLoader.get_label_from_filename(self._data_path.name)
         self._fps, self._rpm, self._rec = CoordDataLoader.get_info_from_filename(self._data_path.name)
-        self._dimension = dimension
-        self._num_cage_markers = num_cage_markers
-        self.t_data, self.cage_markers_pixel, self.ring_markers_pixel = CoordDataLoader.load_markers(data_path=self._data_path, data_format=data_format, num_cage_markers=self._num_cage_markers, dimension=self._dimension)
+        self.t_data, self.cage_markers_pixel, self.ring_markers_pixel = CoordDataLoader.load_markers(data_path=data_path, data_format=data_format, num_cage_markers=num_cage_markers)
         self._num_frames = len(self.t_data)
-        self.cage_markers_zero_pixel, self.ring_center_zero_pixel, self.ring_area_zero_pixel = CoordDataLoader.load_markers_zero(data_path=self._zero_data_path, data_format=zero_data_format, num_cage_markers=self._num_cage_markers, dimension=self._dimension)
+        self.cage_markers_zero_pixel, self.ring_center_zero_pixel, self.ring_area_zero_pixel = CoordDataLoader.load_markers_zero(data_path=self._zero_data_path, data_format=zero_data_format, num_cage_markers=num_cage_markers)
         self._pixel2mm_reference_mode = pixel2mm_reference_mode
         self._reference_value = reference_value
         self.pixel2mm = CoordDataLoader.calc_scaling_factor_pixel2mm(measured_value=self.ring_area_zero_pixel, reference_value=self._reference_value, reference_mode=self._pixel2mm_reference_mode)
         self.t = np.arange(self._num_frames) / self._fps
-        self.ring_center_zero = (self.pixel2mm * self.ring_center_zero_pixel)
+        self.ring_center_zero = (self.pixel2mm * self.ring_center_zero_pixel)[np.newaxis, np.newaxis, :]
         self.cage_markers = self.pixel2mm * self.cage_markers_pixel - self.ring_center_zero
-        self.cage_markers_zero = (self.pixel2mm * self.cage_markers_zero_pixel - self.ring_center_zero)
-        self.ring_markers = self.pixel2mm * self.ring_markers_pixel - self.ring_center_zero if self.ring_markers_pixel is not None else None
+        self.cage_markers_zero = (self.pixel2mm * self.cage_markers_zero_pixel - self.ring_center_zero)[np.newaxis, :, :]
+        if self.ring_markers_pixel is not None: self.ring_markers = self.pixel2mm * self.ring_markers_pixel - self.ring_center_zero
         self._duration = float(self.t[-1] - self.t[0])
 
     @property
@@ -220,9 +181,6 @@ class CoordDataLoader:
     def num_cage_markers(self):
         return self._num_cage_markers
     @property
-    def dimension(self):
-        return self._dimension
-    @property
     def rec(self):
         return self._rec
     @property
@@ -240,10 +198,10 @@ class CoordDataLoader:
             f"zero_data_path: {self.zero_data_path}\n"
             f"tc: {self.tc}, sc: {self.sc}\n"
             f"rpm: {self.rpm}, rec: {self.rec}\n"
-            f"fps: {self.fps} [frame/sec], duration: {self.duration} [sec], num_frames: {self.num_frames}, dimension: {self.dimension}\n"
+            f"fps: {self.fps} [frame/sec], duration: {self.duration} [sec], num_frames: {self.num_frames},\n"
             f"biring area: {self.ring_area_zero_pixel} [pixel] ({self.reference_value} [mm**2]), pexel2mm: {self.pixel2mm}\n"
             f"ring_center: {ring_center_zero_preview} [mm] ({ring_center_zero_pixel_preview} [pixel])\n"
-            f"cage_markers: {self.cage_markers.shape}, ring_markers: {self.ring_markers.shape}"
+            f"cage_markers: {self.cage_markers.shape}, ring_markers: {self.ring_markers.shape}\n"
         )
 
 @dataclass
@@ -267,50 +225,20 @@ class CoordSeries:
             "sc": self.loader.sc,
             "fps": self.loader.fps,
             "duration": self.loader.duration,
-            "num_frames": self.loader.num_frames,
-            "num_cage_markers": self.loader.num_cage_markers,
-            "pixel2mm": self.loader.pixel2mm
+            "num_frames": self.loader.num_frames
         }
     @property
     def t(self) -> np.ndarray:
         return self.loader.t
     @property
-    def cage_markers_zero(self) -> np.ndarray:
-        if self.loader.dimension == 2:
-            x = np.zeros(1)[:, np.newaxis, np.newaxis]
-            xs = np.broadcast_to(x, (1, self.loader.num_cage_markers, 1))
-            cage_markers_zero = np.concatenate([xs, self.loader.cage_markers_zero], axis=-1)
-        else:
-            cage_markers_zero = self.loader.cage_markers_zero
-        return cage_markers_zero
-    @property
     def cage_markers(self) -> np.ndarray:
-        if self.loader.dimension == 2:
-            x = np.zeros(self.loader.num_frames)[:, np.newaxis, np.newaxis]
-            xs = np.broadcast_to(x, (self.loader.num_frames, self.loader.num_cage_markers, 1))
-            cage_markers = np.concatenate([xs, self.loader.cage_markers], axis=-1)
-        else:
-            cage_markers = self.loader.cage_markers
-        return cage_markers
+        return self.loader.cage_markers
     @property
     def ring_markers(self) -> np.ndarray:
-        if self.loader.dimension == 2:
-            x = np.zeros(self.loader.num_frames)[:, np.newaxis, np.newaxis]
-            ring_markers = np.concatenate([x, self.loader.ring_markers], axis=-1)
-        else:
-            ring_markers = self.loader.ring_markers
-        return ring_markers
-    @property
-    def ring_center_zero(self) -> np.ndarray:
-        if self.loader.dimension == 2:
-            x = np.zeros(1)[:, np.newaxis, np.newaxis]
-            ring_center_zero = np.concatenate([x, self.loader.ring_center_zero], axis=-1)
-        else:
-            ring_center_zero = self.loader.ring_center_zero
-        return ring_center_zero
+        return self.loader.ring_markers
 
     def __repr__(self):
-        return f"CoordLoader:\n{repr(self.loader)}"
+        return f"CoordSeries:\n{repr(self.loader)}"
 
 class AudioDataLoader:
     @staticmethod
@@ -320,44 +248,13 @@ class AudioDataLoader:
         tc = int(tc_match.group(1)) if tc_match else None
         sc = int(sc_match.group(1)) if sc_match else None
         return tc, sc
+
     @staticmethod
     def get_info_from_filename(filename):
         rec_match = re.search(r"REC(\d+)", filename)
         rec = int(rec_match.group(1)) if rec_match else None
         return rec
-    @staticmethod
-    def identify_data_channel(name, kind, unit):
-        patterns = {
-        "sound" : {
-            "name": ["rec", "mic", "teds"],
-            "kind": ["sound pressure"],
-            "unit": ["pa"]
-            },
-        "trigger" : {
-            "name": ["trigger"],
-            "kind": ["voltage"],
-            "unit": ["v"]
-            },
-        "velocity" : {
-            "name": ["velocity"],
-            "kind": ["sound velocity"],
-            "unit": ["m/s"]
-            },
-        "displacement" : {
-            "name": ["displacement", "displaement"],
-            "kind": ["displacement"],
-            "unit": ["m"]
-            }
-        }
-        for k, v in patterns.items():
-            if name.lower() in v["name"]: _name = k
-            if kind.lower() in v["kind"]: _kind = k
-            if unit.lower() in v["unit"]: _unit = k
-        if _name == _kind == _unit:
-            data_type = _name
-        else:
-            raise ValueError(f"data type doesnt match: (name, kind, unit) = ({_name}, {_kind}, {_unit})")
-        return data_type
+
     @staticmethod
     def load_sound(data_path=None):
         data_format = data_path.suffix
@@ -367,95 +264,20 @@ class AudioDataLoader:
             void_entry = struct_array[0][0]
             fields = void_entry.dtype.names
             # print(fields)
-            #### id check
-            chns = void_entry["Chn"][0]
-            chn_names = []
-            chn_kinds = []
-            chn_units = []
-            data_types = []
-            for _meta in chns:
-                _name = _meta[4][0]
-                _kind = _meta[6][0]
-                _unit = _meta[7][0]
-                chn_names.append(str(_name))
-                chn_kinds.append(str(_kind))
-                chn_units.append(str(_unit))
-                data_type = AudioDataLoader.identify_data_channel(_name, _kind, _unit)
-                data_types.append(data_type)
-            # print(f"names: {chn_names}")
-            # print(f"kinds: {chn_kinds}")
-            # print(f"units: {chn_units}")
-            # print(f"data_types: {data_types}")
-            id_sound = data_types.index("sound")
             t = void_entry["Absc1Data"][0]
-            sound = void_entry["Data"][id_sound]
+            sound = void_entry["Data"][0]
+            # data_volt = void_entry["Data"][1]
             if t[0] != 0:
                 raise ValueError(f"input audio data has problem, time data does not start form 0, start from {t[0]}.")
         elif data_format == ".csv":
-            data_types = []
-            data_start_id = None
-            data_info = {}
-            data_line_pattern = re.compile(r"^\s*[-+]?\d+(\.\d+)?(e[-+]?\d+)?\s*,", re.IGNORECASE) # first element is numeric then comma
-            with data_path.open('r', encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
-            for i, line in enumerate(lines):
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                if data_line_pattern.match(stripped):
-                    data_start_id = i
-                    break
-                if ':' in stripped:
-                    key, value = stripped.split(':', 1)
-                    data_info[key.strip()] = [v for v in value.strip().split(',')][:-1] # cut '' data due to format "name,kind,unit," (last comma)
-            channels = [v for v in data_info.keys() if "Channel" in v]
-            for ch in channels:
-                _d = data_info[ch]
-                data_type = AudioDataLoader.identify_data_channel(_d[0], _d[1], _d[2])
-                data_types.append(data_type)
-            id_sound = data_types.index("sound") + 2
-            print(f"data_types: {data_types}")
-            print(f"id_sound: {id_sound}")
-            # df = pl.read_csv(data_path, has_header=False, skip_rows=data_start_id, separator=',', infer_schema_length=1000).cast(pl.Float64, strict=False)
-            df = pl.scan_csv(data_path, has_header=False, skip_rows=data_start_id, separator=',', infer_schema_length=1000).select([pl.col("column_1"), pl.col(f"column_{id_sound}")]).cast(pl.Float64, strict=False).collect()
-            data = df.to_numpy().astype(float)
+            df = pl.read_csv(data_path, has_header=False, skip_rows=19, separator=',', infer_schema_length=10).cast(pl.Float64, strict=False) #.to_numpy()[:, 1].astype(float)
+            data = df.to_numpy()[:, 0:2].astype(float)
             t = data[:, 0]
             sound = data[:, 1]
             if t[0] != 0:
                 raise ValueError(f"input audio data has problem, time data does not start form 0, start from {t[0]}.")
-        elif data_format.lower() == ".wav":
-            audio = AudioSegment.from_file(data_path)
-            channels = audio.channels
-            sample_rate = audio.frame_rate
-            duration = audio.duration_seconds
-            sample_width = audio.sample_width
-            bit_depth = sample_width * 8
-            num_frames = int(audio.frame_count())
-            t = np.arange(0, duration, 1/sample_rate)
-            sound0 = AudioDataLoader.normalize_sound(np.array(audio.get_array_of_samples())[0::channels], bit_depth)
-            sound1 = AudioDataLoader.normalize_sound(np.array(audio.get_array_of_samples())[1::channels], bit_depth)
-            trigger_idx, sound_idx = AudioDataLoader.classify_sound_trigger_channel(sound0[:1000], sound1[:1000])
-            # print(f"sound_idx: {sound_idx}")
-            sound = [sound0, sound1][sound_idx]
-            return t, sound
         return t, sound
-    @staticmethod
-    def normalize_sound(sound, bit_depth):
-        return sound.astype(np.float64) / float(2**(bit_depth-1))
-    @staticmethod
-    def classify_sound_trigger_channel(d0, d1):
-        # slope0 = np.max(np.abs(np.diff(d0)))
-        # slope1 = np.max(np.abs(np.diff(d1)))
-        d0 = d0 - np.nanmean(d0)
-        d1 = d1 - np.nanmean(d1)
-        rms0 = np.sqrt(np.mean(d0**2))
-        rms1 = np.sqrt(np.mean(d1**2))
-        # print(f"rms0, rms1: {rms0}, {rms1}")
-        #### trriger should be large slope, low RMS
-        # trigger_idx = 0 if (slope0 > slope1 and rms0 < rms1) else 1
-        trigger_idx = 0 if rms0 < rms1 else 1
-        sound_idx = 1 - trigger_idx
-        return trigger_idx, sound_idx
+
     def __init__(self, data_path):
         self._data_path = data_path
         self._tc, self._sc = AudioDataLoader.get_label_from_filename(self._data_path.name)
@@ -464,6 +286,7 @@ class AudioDataLoader:
         self._num_samples = len(self._t)
         self._duration = float(self._t[-1] - self._t[0])
         self._sample_rate = float(1 / (self._t[1] - self._t[0]))
+
     @property
     def data_path(self):
         return self._data_path
@@ -504,6 +327,7 @@ class AudioDataLoader:
     @property
     def sound(self):
         return self._sound
+
     def __repr__(self):
         t_preview = np.array2string(self.t[:5], precision=10, separator=", ")
         sound_preview = np.array2string(self.sound[:5], precision=10, separator=", ")
@@ -512,7 +336,7 @@ class AudioDataLoader:
             f"tc: {self.tc}, sc: {self.sc}, rec: {self.rec}\n"
             f"sample_rate: {self.sample_rate} [Hz], duration: {self.duration} [sec], num_samples: {self.num_samples}\n"
             f"t: {self.t.shape}, {t_preview}\n"
-            f"sound: {self.sound.shape}, {sound_preview}"
+            f"sound: {self.sound.shape}, {sound_preview}\n"
         )
 
 @dataclass
@@ -548,13 +372,13 @@ class AudioSeries:
         return self.loader.sound
 
     def __repr__(self):
-        return f"AudioLoader:\n{repr(self.loader)}"
+        return f"AudioSeries:\n{repr(self.loader)}"
 
 @dataclass
 class Series:
     _coord: CoordSeries | None = None
     _audio: AudioSeries | None = None
-    # datamap_loader: DataMapLoader | None = None
+    datamap: DataMapLoader | None = None
     aligned_reference: str | None = None
     cache: dict[str, object] = field(default_factory=dict)
     _tc: int | None = None
@@ -564,14 +388,14 @@ class Series:
         if self._audio: self.sc = self.coord.meta["sc"]
 
     def __repr__(self):
-        coord_repr = None
-        audio_repr = None
+        coord_meta = None
+        audio_meta = None
         if self.coord:
-            coord_repr = repr(self.coord)
+            coord_meta = self.coord.meta
         if self.audio:
-            audio_repr = repr(self.audio)
+            audio_meta = self.audio.meta
         return (
-            f"tc: {self.tc}, sc: {self.sc}\ncoord:\n{coord_repr}\naudio:\n{audio_repr}"
+            f"tc: {self.tc}, sc: {self.sc}, coord: {coord_meta}, audio: {audio_meta}"
         )
 
     @property
@@ -611,16 +435,16 @@ class Series:
         elif self._audio is None:
             self._audio = value
     @property
-    def meta(self):
-        coord_meta = None
-        audio_meta = None
+    def meta(self) -> dict[str, int | float]:
+        universal_code = {"tc": self.tc, "sc": self.sc}
         if self.coord:
-            coord_meta = self.coord.meta
+            universal_code.update(self.coord.meta)
         if self.audio:
-            audio_meta = self.audio.meta
-        return (
-            f"tc: {self.tc}, sc: {self.sc}, coord: {coord_meta}, audio: {audio_meta}"
-        )
+            universal_code.update({k: v for k, v in self.audio.meta.items() if k not in universal_code})
+        return universal_code
+    @property
+    def map(self):
+        return self.datamap.datamap
 
     def has_both(self) -> bool:
         return (self.coord is not None) and (self.audio is not None)
@@ -635,7 +459,7 @@ class DataSeriesHandler:
     def __init__(self, config: HandlerConfig | None = None):
         self.config = config
         self.seriesmap: dict[tuple[int, int], Series] = {}
-        self.datamap_loader: DataMapLoader | None = None
+        self.datamap: DataMapLoader | None = None
         self.unloaded_coord: list[Path] = []
         self.unloaded_audio: list[Path] = []
         self._logs: list[tuple[str, str]] = []
@@ -645,7 +469,6 @@ class DataSeriesHandler:
         tc_match = re.search(r"tc(\d+)", tgtfile.name)
         tc = tc_match.group(1) if tc_match else None
         suffix = tgtfile.suffix
-        p = None
         if tc:
             p = tgtdir.glob(f"tc{tc}_sc00*{suffix}")
         if p is None:
@@ -681,7 +504,7 @@ class DataSeriesHandler:
         try:
             loader = AudioDataLoader(data_path)
             rec = loader.rec
-            info = self.datamap_loader.extract_info_from_rec(rec)
+            info = self.datamap.extract_info_from_rec(rec)
             tc = info["test_code"]
             sc = info["shooting_code"]
         except Exception as e:
@@ -703,7 +526,7 @@ class DataSeriesHandler:
         datamap_list = list(datamap_dir.glob(datamap_glob))
         if len(datamap_list) != 1:
             raise FileNotFoundError(f"multiple datamap file was found, it msut be a single file")
-        self.datamap_loader = DataMapLoader(datamap_list[0])
+        self.datamap = DataMapLoader(datamap_list[0])
         for p in coord_dir.glob(coord_glob):
             if p.match(r"*sc00*"):
                 continue
@@ -726,11 +549,6 @@ class DataSeriesHandler:
             "unloaded_coord_files": [p.name for p in self.unloaded_coord],
             "unloaded_audio_files": [p.name for p in self.unloaded_audio],
         }
-
-    def select_series(self, tc, sc):
-        dataseries = self.seriesmap[(tc, sc)]
-        datamapinfo = self.datamap_loader.extract_info_from_tcsc(tc, sc)
-        return dataseries, datamapinfo
 
     def filter(self, tc, sc):
         for s in self.seriesmap.values():
@@ -786,51 +604,52 @@ class DataSeriesHandler:
             if self.config.logging_level in ("DEBUG", "INFO", "WARN", "ERROR"):
                 self._logs.append((level, message))
 
-
-
-
 if __name__ == "__main__":
     print("---- test ----")
 
-    datadir = config.ROOT / "data" / "sampledata"
 
-    # datamapfile = datadir / "list_visualization_test.xlsx"
-    # datamap_loader = DataMapLoader(datamapfile)
-    # datamap = datamap_loader.datamap
+    datadir = config.ROOT / "data" / "tc99_290101_testCage_PA99GF30"
+
+    datamapfile = datadir / "list_visualization_test.xlsx"
+    datamap_loader = DataMapLoader(datamapfile)
+    datamap = datamap_loader.datamap
     # print(datamap.head())
     # info = datamap_loader.extract_info_from_tcsc(1, 2)
     # print(info)
     # datamap.write_csv(datadir/"datamap.csv")
 
+    datafile_coord = datadir / "tc23_sc01_4000rpm_8000fps_rec2153.txt"
+    datafile_coord_zero = datadir / "tc23_sc00_0rpm_8000fps_rec2113.txt"
+    coord_loader = CoordDataLoader(data_path=datafile_coord, num_cage_markers=8, zero_data_path=datafile_coord_zero)
+    # print(repr(coord_loader))
+    # coord_series = CoordSeries(coord_loader, datamap_loader)
+    # print(coord_series.meta)
+    # print(repr(coord_series))
+
+
+    # datafile_audio = datadir / "REC2153.mat"
+    # audio_loader = AudioDataLoader(data_path=datafile_audio)
+    # print(audio_loader)
+    # audio_series = AudioSeries(audio_loader, datamap_loader)
+    # print(audio_series.meta)
+    # print(audio_series)
+
+
+    # series = Series(coord_series, audio_series, datamap_loader)
+    # print(series.meta)
+
+    dataseries = DataSeriesHandler()
+    dataseries.scan_directory(datadir, datadir, datadir, "tc*", "REC*", "*.xlsx")
+    print(dataseries.report_pairing())
+    # print(dataseries)
+    # print(dataseries.datamap)
+    for k, v in dataseries.seriesmap.items():
+        print(f"{k}: {v}")
+
+    # print(dataseries._logs)
+
+
     # all_list = dataseries.list_all()
     # for l in all_list:
         # print(l)
-
-    # audio_ld = AudioDataLoader(datadir/"251127_002_5000rpm_silnet.WAV")
-
-    # audio_ld = AudioDataLoader(datadir/"REC3002.csv")
-
-    audio_ld = AudioDataLoader(datadir/"REC3405.csv")
-    # audio_ld0 = AudioDataLoader(datadir/"REC3405.mat")
-    # audio_ld1 = AudioDataLoader(datadir/"REC3405.wav")
-
-    # print(repr(audio_ld))
-
-    # t_error = audio_ld0.t - audio_ld1.t
-    # sound_error = audio_ld0.sound - audio_ld1.sound
-    # print(f"max of error: {np.nanmax(np.abs(sound_error))}")
-
-    fig, ax = plt.subplots(figsize=(12, 8))
-    ax.plot(audio_ld.t, audio_ld.sound, lw=0.4, c='b')
-
-    # ax.plot(np.arange(len(t_error)), t_error, lw=0.4, c='b')
-    # ax.plot(np.arange(len(t_error)), sound_error, lw=0.4, c='b')
-    # ax.plot(audio_ld0.t, audio_ld0.sound, lw=0.4, c='b')
-    # ax.plot(audio_ld1.t, audio_ld1.sound, lw=0.4, c='r')
-    # ax.set(ylim=(-10, 10))
-
-    ax.axhline(y=0, lw=0.1, c='k')
-    plt.show()
-
-
 

@@ -1,7 +1,6 @@
-
 """
-Created on Wed Aug 27 08:42:28 2025
-@author: honda-shin
+Created on Fri Mar 06 18:39:00 2026
+@author: santaro
 
 this module provides some auxiliary calculations to improve readability and consistency
 
