@@ -28,42 +28,6 @@ import time
 
 from mymods import mycoord, myplotter
 
-def make_cage_points(num_frames, num_points, x_value, a, b, deform_angle, transformer, p0_angle=np.pi/2, endpoint=False):
-    p_lcs = np.full((num_frames, num_points, 3), np.nan) # points of pockets on local coordinate system
-    p_global = np.full((num_frames, num_points, 3), np.nan)
-    pos_points = np.linspace(0, 2*np.pi, num_points, endpoint=endpoint) + p0_angle
-    if deform_angle is not 0:
-        rot_euler_for_ellipse = np.vstack([deform_angle, np.zeros(num_frames), np.zeros(num_frames)]).T
-    for i in range(num_points):
-        _x = np.full(num_frames, x_value)
-        _theta = np.full(num_frames, pos_points[i])
-        _y = a * np.cos(_theta)
-        _z = b * np.sin(_theta)
-        p_lcs[:, i, :] = np.vstack([_x, _y, _z]).T
-        if deform_angle is not 0:
-            p_lcs[:, i, :] = mycoord.CoordTransformer3D.rotate_euler(p_lcs[:, i, :], euler_angles=rot_euler_for_ellipse, rot_order="zyx")
-        p_global[:, i, :] = transformer.transform_coord(p_lcs[:, i, :], towhich='toglobal')
-    return p_global, p_lcs
-
-def make_cage_points(num_frames, num_points, x_value, a, b, deform_angle, transformer, p0_angle=np.pi/2, endpoint=False):
-    p_lcs = np.full((num_frames, num_points, 3), np.nan) # points of pockets on local coordinate system
-    p_global = np.full((num_frames, num_points, 3), np.nan)
-    pos_points = np.linspace(0, 2*np.pi, num_points, endpoint=endpoint) + p0_angle
-    if deform_angle is not 0:
-        rot_euler_for_ellipse = np.vstack([deform_angle, np.zeros(num_frames), np.zeros(num_frames)]).T
-    for i in range(num_points):
-        _x = np.full(num_frames, x_value)
-        _theta = np.full(num_frames, pos_points[i])
-        _y = a * np.cos(_theta)
-        _z = b * np.sin(_theta)
-        p_lcs[:, i, :] = np.vstack([_x, _y, _z]).T
-        if deform_angle is not 0:
-            p_lcs[:, i, :] = mycoord.CoordTransformer3D.rotate_euler(p_lcs[:, i, :], euler_angles=rot_euler_for_ellipse, rot_order="zyx")
-        p_global[:, i, :] = transformer.transform_coord(p_lcs[:, i, :], towhich='toglobal')
-    return p_global, p_lcs
-
-# transformer = mycoord.CoordTransformer2D(coordsys_name="cage_coordsys", local_origin=np.zeros(2), theta=self.pos_pockets)
-
 
 class SimpleCage:
     def __init__(self, name='', PCD=50, ID=48, OD=52, width=10, num_pockets=8, num_markers=8, num_mesh=100, Dp=6.25, Dw=5.953):
@@ -79,9 +43,9 @@ class SimpleCage:
         self.Dp = Dp
         self.Dw = Dw
         self.dp = Dp - Dw
-        self.pos_pockets = np.linspace(0, 2*np.pi, self.num_pockets, endpoint=False) + np.pi/2
-        self.pos_markers = np.linspace(0, 2*np.pi, self.num_markers, endpoint=False) + np.pi/2
-        self.pos_node = np.linspace(0, 2*np.pi, self.num_nodes, endpoint=True) + np.pi/2
+        self.pockets_pos = np.linspace(0, 2*np.pi, self.num_pockets, endpoint=False) + np.pi/2
+        self.markers_pos = np.linspace(0, 2*np.pi, self.num_markers, endpoint=False) + np.pi/2
+        self.nodes_pos = np.linspace(0, 2*np.pi, self.num_nodes, endpoint=True) + np.pi/2
     @staticmethod
     def omega2p(omega, r, dt, num_frames=None):
         omega = np.full(num_frames, omega) if np.ndim(omega) == 0 else omega
@@ -96,73 +60,76 @@ class SimpleCage:
         omega = np.gradient(angle, dt)
         return omega
     @staticmethod
-    def make_cage_points(num_frames, num_points, x_value, a, b, deform_angle, transformer, p0_angle=np.pi/2, endpoint=False):
-        p_lcs = np.full((num_frames, num_points, 3), np.nan) # points of pockets on local coordinate system
-        p_global = np.full((num_frames, num_points, 3), np.nan)
-        pos_points = np.linspace(0, 2*np.pi, num_points, endpoint=endpoint) + p0_angle
-        if deform_angle is not 0:
-            rot_euler_for_ellipse = np.vstack([deform_angle, np.zeros(num_frames), np.zeros(num_frames)]).T
-        for i in range(num_points):
+    def make_pockets(cage, num_pockets, x_value, a, b, deform_angle=None, p0_angle=np.pi/2, endpoint=False):
+        num_frames = cage.shape[0]
+        pockets_local = np.full((num_frames, num_pockets, 6), np.nan) # pockets of pockets on local coordinate system
+        pockets_global = np.full((num_frames, num_pockets, 6), np.nan)
+        pockets_pos = np.linspace(0, 2*np.pi, num_pockets, endpoint=endpoint) + p0_angle
+        for i in range(num_pockets):
             _x = np.full(num_frames, x_value)
-            _theta = np.full(num_frames, pos_points[i])
-            _y = a * np.cos(_theta)
-            _z = b * np.sin(_theta)
-            p_lcs[:, i, :] = np.vstack([_x, _y, _z]).T
-            if deform_angle is not 0:
-                p_lcs[:, i, :] = mycoord.CoordTransformer3D.rotate_euler(p_lcs[:, i, :], euler_angles=rot_euler_for_ellipse, rot_order="zyx")
-            p_global[:, i, :] = transformer.transform_coord(p_lcs[:, i, :], towhich='toglobal')
-        return p_global, p_lcs
+            _theta = np.full(num_frames, pockets_pos[i]) - deform_angle
+            _y = a * np.cos(_theta) * np.cos(deform_angle) - b * np.sin(_theta) * np.sin(deform_angle)
+            _z = a * np.cos(_theta) * np.sin(deform_angle) + b * np.sin(_theta) * np.cos(deform_angle)
+            _Rx = np.full(num_frames, pockets_pos[i])
+            _Ry = np.zeros(num_frames)
+            _Rz = np.zeros(num_frames)
+            pockets_local[:, i, :] = np.vstack([_x, _y, _z, _Rx, _Ry, _Rz]).T
+            transformer = mycoord.CoordTransformer3d(local_origin=cage[:, :3], euler_angles=cage[:, 3:6], rot_order="zyx")
+            pockets_global[:, i, :3] = transformer.transform_coord(pockets_local[:, i, :3], towhich='toglobal')
+            pockets_global[:, :, 3:6] = pockets_local[:, :, 3:6] + cage[:, np.newaxis, 3:6]
+        return pockets_global, pockets_local
 
-    def time_series_data(self, fps=10000, p_cage=np.vstack([np.zeros(10001), 0.4*np.cos(np.linspace(0, 2*np.pi*40, 10001)), 0.4*np.sin(np.linspace(0, 2*np.pi*40, 10001))]).T, R_cage=np.vstack([np.linspace(0, 2*np.pi*40, 10001), np.zeros(10001), np.zeros(10001)]).T,  a=1, b=1, p0_angle=np.pi/2, deform_angle=0, noise_type="normal", noise_max=1):
+    def time_series_data(self, fps=10000, cage_p=np.vstack([np.zeros(10001), 0.4*np.cos(np.linspace(0, 2*np.pi*40, 10001)), 0.4*np.sin(np.linspace(0, 2*np.pi*40, 10001))]).T, cage_R=np.vstack([np.linspace(0, 2*np.pi*40, 10001), np.zeros(10001), np.zeros(10001)]).T,  a=1, b=1, p0_angle=np.pi/2, deform_angle=0, noise_type="normal", noise_max=1):
         self.fps = fps
-        self.num_frames = p_cage.shape[0]
+        self.num_frames = cage_p.shape[0]
         self.duration = (self.num_frames - 1) / self.fps
         self.t = np.linspace(0, self.duration, self.num_frames, endpoint=True)
         self.dt = 1 / self.fps
-        self.p_cage = p_cage
-        self.R_cage = R_cage
-        self.omega_rot = np.gradient(R_cage[:, 0], self.dt)
-        self.angle_rev = np.unwrap(np.arctan2(self.p_cage[:, 2], self.p_cage[:, 1]))
+        self.cage_p = cage_p
+        self.cage_R = cage_R
+        self.cage = np.concatenate([cage_p, cage_R], axis=-1)
+        self.omega_rot = np.gradient(cage_R[:, 0], self.dt)
+        self.angle_rev = np.unwrap(np.arctan2(self.cage_p[:, 2], self.cage_p[:, 1]))
         self.omega_rev = np.gradient(self.angle_rev, self.dt)
-        self.r_rev = np.linalg.norm(self.p_cage[:, 1:], axis=1)
+        self.r_rev = np.linalg.norm(self.cage_p[:, 1:], axis=1)
         self.omega_rot_avg = np.nanmean(self.omega_rot)
         self.rpm_avg = np.nanmean(self.omega_rot) / (2*np.pi) * 60
-        self.euler_angles1 = np.vstack([self.omega_rot_avg * self.t, np.zeros(self.num_frames), np.zeros(self.num_frames)]).T # euler angle for rotation frame with constant velocity
-        self.euler_angles2 = np.vstack([self.R_cage[:, 0], np.zeros(self.num_frames), np.zeros(self.num_frames)]).T # euler angle for rotation frame with instant velocity
-        self.transformer_SI = mycoord.CoordTransformer3D(coordsys_name="system_coordsys", local_origin=np.zeros((self.num_frames, 3)), euler_angles=self.R_cage, rot_order='zyx')
-        self.p_cage_lcs = self.transformer_SI.transform_coord(self.p_cage, towhich="tolocal")
-        self.transformer_CI= mycoord.CoordTransformer3D(coordsys_name="cage_coordsys", local_origin=self.p_cage, euler_angles=self.R_cage, rot_order='zyx')
-        # self.transformer_SA = mycoord.CoordTransformer3D(coordsys_name="sytem_coordsys", local_origin=np.zeros((self.num_frames, 3)), euler_angles=np.nanmean(np.gradient(self.R_cage, self.t))*self.t, rot_order='zyx')
-        # self.transformer_CA= mycoord.CoordTransformer3D(coordsys_name="cage_coordsys", local_origin=self.p_cage, euler_angles=np.nanmean(np.gradient(self.R_cage, self.t))*self.t, rot_order='zyx')
+        #### define coordinate transformer
+        self.euler_angles_avg = np.vstack([self.omega_rot_avg * self.t, np.zeros(self.num_frames), np.zeros(self.num_frames)]).T # euler angle for rotation frame with constant velocity
+        self.transformerSI = mycoord.CoordTransformer3d(name="system_instantaneous", local_origin=np.zeros((self.num_frames, 3)), euler_angles=self.cage_R, rot_order='zyx')
+        self.transformerSA = mycoord.CoordTransformer3d(name="system_average", local_origin=np.zeros((self.num_frames, 3)), euler_angles=self.euler_angles_avg, rot_order="zyx")
+        self.transformerCI= mycoord.CoordTransformer3d(name="cage_instantaneous", local_origin=self.cage_p, euler_angles=self.cage_R, rot_order='zyx')
+        self.transformerCA = mycoord.CoordTransformer3d(name="cage_average", local_origin=self.cage_p, euler_angles=self.euler_angles_avg, rot_order="zyx")
         #### generate points on cage
-        self.p_pockets, self.p_pockets_lcs = SimpleCage.make_cage_points(num_frames=self.num_frames, num_points=self.num_pockets, x_value=0, a=a*self.PCD/2, b=b*self.PCD/2, p0_angle=p0_angle, deform_angle=deform_angle, transformer=self.transformer_CI)
-        self.p_markers, self.p_markers_lcs = SimpleCage.make_cage_points(num_frames=self.num_frames, num_points=self.num_markers, x_value=self.width/2, a=a*self.PCD/2, b=b*self.PCD/2, p0_angle=p0_angle, deform_angle=deform_angle, transformer=self.transformer_CI)
-        self.p_nodes, self.p_nodes_lcs = SimpleCage.make_cage_points(num_frames=self.num_frames, num_points=self.num_nodes, x_value=0, a=a*self.PCD/2, b=b*self.PCD/2, p0_angle=p0_angle, deform_angle=deform_angle, transformer=self.transformer_CI, endpoint=True)
+        self.pockets, self.pockets_local = SimpleCage.make_pockets(self.cage, num_pockets=self.num_pockets, x_value=0, a=a*self.PCD/2, b=b*self.PCD/2, p0_angle=p0_angle, deform_angle=deform_angle)
+        self.markers, self.markers_local = SimpleCage.make_pockets(self.cage, num_pockets=self.num_markers, x_value=0, a=a*self.PCD/2, b=b*self.PCD/2, p0_angle=p0_angle, deform_angle=deform_angle)
+        self.nodes, self.nodes_local = SimpleCage.make_pockets(self.cage, num_pockets=self.num_nodes, x_value=0, a=a*self.PCD/2, b=b*self.PCD/2, p0_angle=p0_angle, deform_angle=deform_angle, endpoint=True)
         #### add noise to the marker
         rng = np.random.default_rng(seed=0)
         if noise_type == 'uniform':
             noise = rng.uniform(-1, 1, (self.num_frames, self.num_markers, 3)) * noise_max
         elif noise_type == 'normal':
             noise = rng.normal(0, 1/3, (self.num_frames, self.num_markers, 3)) * noise_max
-        self.p_markers_noise_lcs = self.p_markers_lcs + noise
-        self.p_markers_noise = np.full((self.num_frames, self.num_markers, 3), np.nan)
+        self.markers_p_noise_local = np.full((self.num_frames, self.num_markers, 3), np.nan)
+        self.markers_p_noise_local[:, :, :] = self.markers_local[:, :, :3] + noise
+        self.markers_p_noise = np.full((self.num_frames, self.num_markers, 3), np.nan)
         for i in range(self.num_markers):
-            self.p_markers_noise[:, i, :] = self.transformer_CI.transform_coord(self.p_markers_noise_lcs[:, i, :], towhich='toglobal')
+            self.markers_p_noise[:, i, :] = self.transformerCI.transform_coord(self.markers_p_noise_local[:, i, :], towhich='toglobal')
 
-    def time_series_data2(self, fps=10000, duration=1, omega_rot=40*np.pi, omega_rev=40*np.pi, r_rev=0.4, a=1, b=1, p0_angle=np.pi/2, omega_deform=0, noise_type="normal", noise_max=1):
+    def time_series_data2(self, fps=10000, duration=1, omega_rot=40*np.pi, omega_rev=40*np.pi, r_rev=0.4, initial_pos=np.pi/2, a=1, b=1, p0_angle=np.pi/2, omega_deform=0, noise_type="normal", noise_max=1):
         num_frames = int(fps * duration) + 1
         t = np.linspace(0, duration , num_frames)
         dt = 1 / fps
         x = np.zeros(num_frames)
-        y = r_rev * np.cos(omega_rev*t + np.pi/2)
-        z = r_rev * np.sin(omega_rev*t + np.pi/2)
-        p_cage = np.vstack([x, y, z]).T
+        y = r_rev * np.cos(omega_rev*t + initial_pos)
+        z = r_rev * np.sin(omega_rev*t + initial_pos)
+        cage_p = np.vstack([x, y, z]).T
         Rx = np.cumsum(np.hstack([0, np.full(num_frames-1, omega_rot)])) * dt
         Ry = np.zeros(num_frames)
         Rz = np.zeros(num_frames)
-        R_cage = np.vstack([Rx, Ry, Rz]).T
+        cage_R = np.vstack([Rx, Ry, Rz]).T
         deform_angle = omega_deform * t
-        self.time_series_data(fps=fps, p_cage=p_cage, R_cage=R_cage, a=a, b=b, p0_angle=p0_angle, deform_angle=deform_angle, noise_type=noise_type, noise_max=noise_max)
+        self.time_series_data(fps=fps, cage_p=cage_p, cage_R=cage_R, a=a, b=b, p0_angle=p0_angle, deform_angle=deform_angle, noise_type=noise_type, noise_max=noise_max)
 
     def export_with_TEMAformat(self, outdir=None):
         #### export with visualization test format
@@ -170,13 +137,13 @@ class SimpleCage:
         if outfname == None: outfname = f'{self.name}_sc{self.shooting_code}_{self.rpm_avg}rpm_{self.fps}fps'
         markers = [self.t]
         for i in range(self.num_pockets):
-            markers.append(self.p_markers[:, i, 1])
-            markers.append(self.p_markers[:, i, 2])
+            markers.append(self.markers_p[:, i, 1])
+            markers.append(self.markers_p[:, i, 2])
         markers = np.array(markers).T
         markers_noise = [self.t]
         for i in range(self.num_pockets):
-            markers_noise.append(self.p_markers_noise[:, i, 1])
-            markers_noise.append(self.p_markers_noise[:, i, 2])
+            markers_noise.append(self.markers_p_noise[:, i, 1])
+            markers_noise.append(self.markers_p_noise[:, i, 2])
         markers_noise = np.array(markers_noise).T
         zero_markers = []
         _markers_name = []
@@ -219,183 +186,22 @@ class SimpleCage:
         for i in range(self.num_markers):
             for j in list(['x', 'y']):
                 header_markers.append(f'p{i}{j}')
-        markers = np.vstack([np.arange(self.num_frames), self.t, self.p_markers]).T
+        markers = np.vstack([np.arange(self.num_frames), self.t, self.markers_p]).T
         mytools.save_csv(markers, header=header_markers, outfname=f'{outfname}_markers.csv')
-        markers_noise = np.vstack([np.arange(self.num_frames), self.t, self.p_markers_noise]).T
+        markers_noise = np.vstack([np.arange(self.num_frames), self.t, self.markers_p_noise]).T
         mytools.save_csv(markers_noise, header=header_markers, outfname=f'{outfname}_markers_noise.csv')
         header_pockets = ['frame', 'time [sec]']
         for i in range(self.num_markers):
             for j in list(['x', 'y']):
                 header_pockets.append(f'p{i}_{j}')
-        pockets = np.vstack([np.arange(self.num_frames), self.t, self.p_pockets]).T
+        pockets = np.vstack([np.arange(self.num_frames), self.t, self.pockets_p]).T
         mytools.save_csv(pockets, header=header_pockets, outfname=f'{outfname}_pockets.csv')
 
-    def plot_trajectory(self, pltrange=[0, 10000]):
-        plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.SQUARE_FIG)
-        y, z = self.p_cage[:, 1], self.p_cage[:, 2]
-        fig, ax = plotter.myfig(xrange=(-1, 1), yrange=(-1, 1))
-        ax[0].plot(y, z, lw=1, c='k', alpha=1)
-        return fig, ax
 
-    def plot_markers(self, pltrange=[0, 10000], num='all'):
-        plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.LANDSCAPE_FIG_31)
-        # ys, zs = [], []
-        # if num == 'all':
-        #     num = self.num_markers
-        # for i in range(num):
-        #     p_markers_rotframe2 = self.transformer_CI.transform_coord(self.p_markers[:, i, :], euler_angles=self.euler_angles, towhich='tolocal')
-        #     ys.append(p_markers_rotframe2[:, 1][pltrange[0]:pltrange[1]])
-        #     zs.append(p_markers_rotframe2[:, 2][pltrange[0]:pltrange[1]])
-        fig, axs = plotter.myfig()
-        axs[0].plot(self.p_markers[:, 0, 0], lw=1, c='k', alpha=1)
-        axs[1].plot(self.p_markers[:, 0, 1], lw=1, c='k', alpha=1)
-        axs[2].plot(self.p_markers[:, 0, 2], lw=1, c='k', alpha=1)
-        return fig, axs
 
-    def append_all_object(self, container, *args):
-        for a in args:
-            if a is not None:
-                container.append(a)
-        return container
-
-    def make_line_and_point_for_ani(self, fig, ax, x, y, f, disp_max, color='k', markersize=8):
-        if disp_max == 1:
-            l, = ax.plot([0, 0], [0, 0], alpha=0)
-            p = ax.scatter(x[f], y[f], c=color, s=markersize)
-        elif disp_max > 1:
-            if f <= disp_max:
-                l, = ax.plot(x[:f+1], y[:f+1], c=color, lw=1, alpha=0.2)
-                p = ax.scatter(x[f], y[f], c=color, s=markersize)
-            elif f > disp_max:
-                start = f - disp_max
-                end = f + 1
-                l, = ax.plot(x[start:end], y[start:end], c=color, lw=1, alpha=0.2)
-                p = ax.scatter(x[f], y[f], c=color, s=markersize)
-        return fig, ax, p, l
-
-    def make_cage_shape_for_ani(self, fig, ax, x, y, f, color='k', lw=4, alpha=0.4, markersize=False):
-        l, = ax.plot(x[f], y[f], c=color, lw=lw, alpha=alpha)
-        if markersize:
-            p = ax.scatter(x[f], y[f], c=color, s=markersize) # display nodes
-        else:
-            p = None
-        return fig, ax, p, l
-
-    def transform_multiple_pointsets(self, pointsets, local_origin, euler_angles, towhich):
-        for i in range(len(pointsets[0])):
-            pointsets[:, i, :] = self.transformer_CI.transform_coord(pointsets[:, i, :], towhich=towhich)
-        return pointsets
-
-    def make_current_frame_and_time(self, fig, ax, f, num_frames, fontsize=8, position=(0.9, 0.025, 0.014)):
-        curf = f'{f} / {num_frames} [frame]'
-        curt = f'{round(self.t[f], 4):#.04f} [sec]'
-        txt1 = fig.text(position[0], position[1], curf, ha='left', va='center', fontsize=fontsize)
-        txt2 = fig.text(position[0], position[1]+position[2], curt, ha='left', va='center', fontsize=fontsize)
-        return fig, ax, txt1, txt2
-
-    def make_ani_trajectory(self, num_frames=1000, interval=1000/30, skip=1, disp_max=None, xyrange=(-1, 1), xytick=0.2, xysigf=2, markersize=8, color='k', coordsys='global'):
-        plotter = myplotter.MyPlotter()
-        fig, ax = plotter.myfig(sizecode='sizecode01', title='trajectory of cage center', xrange=xyrange, yrange=xyrange, xtick=xytick, ytick=xytick)
-        ax.axvline(x=0, ymin=0.44, ymax=0.56, c='k', lw=0.4)
-        ax.axhline(y=0, xmin=0.44, xmax=0.56, c='k', lw=0.4)
-        num_frames = self.num_frames if num_frames is None else num_frames
-        if disp_max is None: disp_max = num_frames
-        if coordsys == 'global':
-            cx, cy, cz = self.p_cage[::skip, :].T
-        # rotating frame: S mean system, C mean cage, A mean average, I mean instantaneous
-        elif coordsys == 'rotframeSA':
-            cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=np.zeros(3), euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :].T
-        elif coordsys == 'rotframeSI':
-            cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=np.zeros(3), euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :].T
-        elif coordsys == 'rotframeCA':
-            cx, cy, cz = self.transformer.transform_coord(self.p_cage, euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :].T
-        elif coordsys == 'rotframeCI':
-            cx, cy, cz = self.transformer.transform_coord(self.p_cage, euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :].T
-        artists = []
-        for f in range(num_frames):
-            fig, ax, p, l = self.make_line_and_point_for_ani(fig=fig, ax=ax, x=cy, y=cz, f=f, disp_max=disp_max, color=color, markersize=8)
-            fig, ax, txt1, txt2 = self.make_current_frame_and_time(fig=fig, ax=ax, f=f, num_frames=num_frames)
-            artists.append([p, l, txt1, txt2])
-        ani = ArtistAnimation(fig, artists, interval=interval)
-        return ani
-
-    def make_ani_trajectories(self, num_frames=1000, interval=1000/30, skip=1, disp_max=None, center_scale=1, xyrange=(-30, 30), xytick=5, xysigf=0, markersize=None, color='r', coordsys='global', markers_type='ideal'):
-        plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.SQUARE_FIG)
-        fig, ax = plotter.myfig(title='trajectory of markers', xrange=xyrange, yrange=xyrange, xtick=xytick, ytick=xytick, xsigf=xysigf, ysigf=xysigf)
-        ax = ax[0]
-        ax.axvline(x=0, ymin=0.4, ymax=0.6, c='k', lw=0.4)
-        ax.axhline(y=0, xmin=0.4, xmax=0.6, c='k', lw=0.4)
-        num_frames = self.num_frames if num_frames is None else num_frames
-        if disp_max is None: disp_max = num_frames
-        colors = ['r', 'b'] + ['k']*100
-        if markersize is None:
-            markersize = [100, 100] + [20]*100
-        elif isinstance(markersize, int):
-            markersize = [markersize] * self.num_markers
-        if markers_type == 'ideal':
-            if coordsys == 'global':
-                x, y, z = self.p_markers[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.p_cage[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.p_nodes[::skip, :, :].transpose(2, 0, 1)
-            # rotating frame: S mean system, C mean cage, A mean average, I mean instantaneous
-            elif coordsys == 'rotframeSA':
-                x, y, z = self.transform_multiple_pointsets(self.p_markers, local_origin=np.zeros(3), euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=np.zeros(3), euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.transform_multiple_pointsets(self.p_nodes, local_origin=np.zeros(3), euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-            elif coordsys == 'rotframeSI':
-                x, y, z = self.transform_multiple_pointsets(self.p_markers, local_origin=np.zeros(3), euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=np.zeros(3), euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.transform_multiple_pointsets(self.p_nodes, local_origin=np.zeros(3), euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-            elif coordsys == 'rotframeCA':
-                x, y, z = self.transform_multiple_pointsets(self.p_markers, local_origin=self.p_cage, euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=self.p_cage, euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.transform_multiple_pointsets(self.p_nodes, local_origin=self.p_cage, euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-            elif coordsys == 'rotframeCI':
-                x, y, z = self.transform_multiple_pointsets(self.p_markers, local_origin=self.p_cage, euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=self.p_cage, euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.transform_multiple_pointsets(self.p_nodes, local_origin=self.p_cage, euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-        elif markers_type == 'noise':
-            if coordsys == 'global':
-                x, y, z = self.p_markers_noise[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.p_cage[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.p_nodes[::skip, :, :].transpose(2, 0, 1)
-            elif coordsys == 'rotframeSA':
-                x, y, z = self.transform_multiple_pointsets(self.p_markers_noise, local_origin=np.zeros(3), euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=np.zeros(3), euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.transform_multiple_pointsets(self.p_nodes, local_origin=np.zeros(3), euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-            elif coordsys == 'rotframeSI':
-                x, y, z = self.transform_multiple_pointsets(self.p_markers_noise, local_origin=np.zeros(3), euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=np.zeros(3), euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.transform_multiple_pointsets(self.p_nodes, local_origin=np.zeros(3), euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-            elif coordsys == 'rotframeCA':
-                x, y, z = self.transform_multiple_pointsets(self.p_markers_noise, local_origin=self.p_cage, euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=self.p_cage, euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.transform_multiple_pointsets(self.p_nodes, local_origin=self.p_cage, euler_angles=self.euler_angles1, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-            elif coordsys == 'rotframeCI':
-                x, y, z = self.transform_multiple_pointsets(self.p_markers_noise, local_origin=self.p_cage, euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-                cx, cy, cz = self.transformer.transform_coord(self.p_cage, local_origin=self.p_cage, euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :].T * center_scale
-                x_node, y_node, z_node = self.transform_multiple_pointsets(self.p_nodes, local_origin=self.p_cage, euler_angles=self.euler_angles2, towhich='tolocal')[::skip, :, :].transpose(2, 0, 1)
-        else:
-            print('**** markers_type is invalid.')
-        artists = []
-        for f in range(num_frames):
-            container = []
-            for i in range(self.num_markers):
-                fig, ax, p, l = self.make_line_and_point_for_ani(fig=fig, ax=ax, x=y[:, i], y=z[:, i], f=f, disp_max=disp_max, color=colors[i], markersize=markersize[i])
-                container = self.append_all_object(container, p, l)
-            fig, ax, p_center, l_center = self.make_line_and_point_for_ani(fig=fig, ax=ax, x=cy, y=cz, f=f, disp_max=disp_max, color='k', markersize=markersize[i])
-            fig, ax, p_node, l_mesh = self.make_cage_shape_for_ani(fig=fig, ax=ax, x=y_node, y=z_node, f=f, color='g')
-            fig, ax, txt1, txt2 = self.make_current_frame_and_time(fig=fig, ax=ax, f=f, num_frames=num_frames)
-            container = self.append_all_object(container, p_center, l_center, p_node, l_mesh, txt1, txt2)
-            artists.append(container)
-        ani = ArtistAnimation(fig, artists, interval=interval)
-        return ani
 
 if __name__ == '__main__':
     print('---- test ----')
-
-    # plotter = myplotter.PlotterForCage(config.ROOT/'config'/'plot_settings.json')
-    # transformer = mycoord.CoordTransformer3D()
 
     st = time.perf_counter()
 
@@ -409,25 +215,98 @@ if __name__ == '__main__':
 
     import time_param_loader
     param_loader = time_param_loader.TimeParamLoader()
-    motion_code = time_param_loader.MotionCode
-    param = param_loader.param_factory(motion_code.ROT_REV_ELLIPSE)
+    MotinoCode = time_param_loader.MotionCode
+    # param = param_loader.param_factory(MotinoCode.ROT_REV_ELLIPSE)
+    # param = param_loader.param_factory(MotinoCode.ROT10_REV)
+    param = param_loader.param_factory(MotinoCode.ROT_GRAVITY)
+    # param = param_loader.param_factory(MotinoCode.ROT_REV10)
+    # param = param_loader.param_factory(MotinoCode.ROT_REV10_ELLIPSE10)
     print(param)
-
-    # cage.time_series_data2(fps=param.fps, duration=param.duration, omega_rot=param.omega_rot, omega_rev=param.omega_rev, r_rev=param.r_rev, a=param.a, b=param.b, omega_deform=param.omega_deform, noise_type=param.noise_type, noise_max=param.noise_max)
-    cage.time_series_data2(fps=16000, duration=1, omega_rot=100*np.pi, omega_rev=1000*np.pi, r_rev=1, a=1.05, b=0.95, omega_deform=1000*np.pi, noise_type="normal", noise_max=1)
-
-    # fig = cage.plot_trajectory()
-    # fig = cage.plot_markers(pltrange=(0, 10))
-
-    # import myplotter
-    # plotter = myplotter.PlotterForCage()
-    # fig, axs, ani = plotter.animate_trajectory2([x], [y], [x_lcs], [y_lcs], gravity_angle=-2*np.pi*t-np.pi/2, time=t)
-    # fig, axs, ani = plotter.animate_trajectory3([cage.p_cage[:, 1]], [cage.p_cage[:, 2]], [cage.p_cage_lcs[:, 1]], [cage.p_cage_lcs[:, 2]], cage.t, [cage.t], [cage.p_cage[:, 2]], gravity_angle=-cage.omega_rot_avg*cage.t-np.pi/2)
+    cage.time_series_data2(fps=param.fps, duration=param.duration, omega_rot=param.omega_rot, omega_rev=param.omega_rev, r_rev=param.r_rev, a=param.a, b=param.b, omega_deform=param.omega_deform, noise_type=param.noise_type, noise_max=param.noise_max, initial_pos=param.initial_pos)
 
     et = time.perf_counter()
     print(f'elapsed time: {round((et-st)/1000, 4)} [sec]')
+
+    plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.TRAJECTORY_WITH_TIMESERIES)
+    fig, axs = plotter.myfig(xrange=[(-30, 30), (-30, 30)], yrange=[(-30, 30), (-30, 30)])
+    # plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.TRAJECTORY)
+    # fig, axs = plotter.myfig(xrange=(-40, 40), yrange=(-40, 40))
+
+
+    cage_center_scale = 1
+    cage_center = cage.cage[:, :3] * cage_center_scale
+    cage_center_local = cage.transformerSI.transform_point(cage.cage[:, :3], towhich="tolocal")
+    data_list = [
+        {"id": 0, "data": [cage_center[:, 1], cage_center[:, 2]], "color": 'k', "markersize": 10, "malpha": 1, "lw": 1, "lalpha": 0.4, "disp_max": 100},
+        {"id": 1, "data": [cage_center_local[:, 1], cage_center_local[:, 2]], "color": 'k', "markersize": 10, "malpha": 1, "lw": 1, "lalpha": 0.4, "disp_max": 100},
+    ]
+
+    _c0 = {"id": 0, "data": [cage.pockets[:, 0, 1], cage.pockets[:, 0, 2]], "color": 'r', "markersize": 400, "malpha": 1, "lw": 1, "lalpha": 0.4, "disp_max": 0}
+    _c1 = {"id": 0, "data": [cage.pockets[:, 1, 1], cage.pockets[:, 1, 2]], "color": 'b', "markersize": 400, "malpha": 1, "lw": 1, "lalpha": 0.4, "disp_max": 0}
+    data_list.append(_c0)
+    data_list.append(_c1)
+    for i in range(cage.num_pockets):
+        _c2 = {"id": 0, "data": [cage.pockets[:, i, 1], cage.pockets[:, i, 2]], "color": 'k', "markersize": 400, "malpha": 0.1, "lw": 1, "lalpha": 0.4, "disp_max": 0}
+        data_list.append(_c2)
+    pockets_local = np.full((cage.num_frames, cage.num_pockets, 3), np.nan)
+    for i in range(cage.num_pockets):
+        pockets_local[:, i, :] = cage.transformerSI.transform_coord(cage.pockets[:, i, :3], towhich="tolocal")
+        _c2 = {"id": 1, "data": [pockets_local[:, i, 1], pockets_local[:, i, 2]], "color": 'k', "markersize": 400, "malpha": 0.1, "lw": 1, "lalpha": 0.4, "disp_max": 0}
+        data_list.append(_c2)
+    _c0 = {"id": 1, "data": [pockets_local[:, 0, 1], pockets_local[:, 0, 2]], "color": 'r', "markersize": 400, "malpha": 1, "lw": 1, "lalpha": 0.4, "disp_max": 0}
+    _c1 = {"id": 1, "data": [pockets_local[:, 1, 1], pockets_local[:, 1, 2]], "color": 'b', "markersize": 400, "malpha": 1, "lw": 1, "lalpha": 0.4, "disp_max": 0}
+    data_list.append(_c0)
+    data_list.append(_c1)
+
+    cage_ori = mycoord.CoordTransformer3d.get_basic_vector(cage.cage[:, 3:], rot_order="zyx")
+    cage_ori_avg = mycoord.CoordTransformer3d.get_basic_vector(cage.euler_angles_avg, rot_order="zyx")
+    cage_local = np.full((cage.num_frames, 6), np.nan)
+    cage_local[:, :3] = cage.transformerCI.transform_point(cage.cage[:, :3], towhich="tolocal")
+    cage_local[:, 3:6] = cage.transformerCI.transform_orientation(cage.cage[:, 3:6], towhich="tolocal")
+    cage_ori_local = mycoord.CoordTransformer3d.get_basic_vector(cage_local, rot_order="zyx")
+    vct_list = [
+        #### system basic vector
+        {"id": 0, "mode": "force", "data": [cage_center[:, 1], cage_center[:, 2], cage_ori[:, 1, 1], cage_ori[:, 1, 2]], "width": 0.005, "scale": 0.2, "color": 'g', "alpha": 1},
+        {"id": 0, "mode": "force", "data": [cage_center[:, 1], cage_center[:, 2], cage_ori[:, 2, 1], cage_ori[:, 2, 2]], "width": 0.005, "scale": 0.2, "color": 'b', "alpha": 1},
+        {"id": 0, "mode": "force", "data": [np.zeros(cage.num_frames), np.zeros(cage.num_frames), cage_ori[:, 1, 1], cage_ori[:, 1, 2]], "width": 0.005, "scale": 0.2, "color": 'g', "alpha": 1},
+        {"id": 0, "mode": "force", "data": [np.zeros(cage.num_frames), np.zeros(cage.num_frames), cage_ori[:, 2, 1], cage_ori[:, 2, 2]], "width": 0.005, "scale": 0.2, "color": 'b', "alpha": 1},
+        #### cage basic vector
+        {"id": 1, "mode": "force", "data": [cage_center_local[:, 1], cage_center_local[:, 2], cage_ori_local[:, 1, 1], cage_ori_local[:, 1, 2]], "width": 0.005, "scale": 0.2, "color": 'g', "alpha": 1},
+        {"id": 1, "mode": "force", "data": [cage_center_local[:, 1], cage_center_local[:, 2], cage_ori_local[:, 2, 1], cage_ori_local[:, 2, 2]], "width": 0.005, "scale": 0.2, "color": 'b', "alpha": 1},
+    ]
+    pockets_local = np.full((cage.num_frames, cage.num_pockets, 6), np.nan)
+    for i in range(cage.num_pockets):
+        _ori = mycoord.CoordTransformer3d.get_basic_vector(cage.pockets[:, i, 3:], rot_order="zyx")
+        _vy = {"id": 0, "mode": "force", "data": [cage.pockets[:, i, 1], cage.pockets[:, i, 2], _ori[:, 1, 1], _ori[:, 1, 2]], "width": 0.002, "scale": 0.5, "color": 'g', "alpha": 1}
+        _vz = {"id": 0, "mode": "force", "data": [cage.pockets[:, i, 1], cage.pockets[:, i, 2], _ori[:, 2, 1], _ori[:, 2, 2]], "width": 0.002, "scale": 0.5, "color": 'b', "alpha": 1}
+        vct_list.append(_vy)
+        vct_list.append(_vz)
+        pockets_local[:, i, :3] = cage.transformerSI.transform_point(cage.pockets[:, i, :3], towhich="tolocal")
+        pockets_local[:, i, 3:6] = cage.transformerSI.transform_orientation(cage.pockets[:, i, 3:6], towhich="tolocal")
+        _ori_local = mycoord.CoordTransformer3d.get_basic_vector(cage.pockets_local[:, i, 3:], rot_order="zyx")
+        _vy = {"id": 1, "mode": "force", "data": [pockets_local[:, i, 1], pockets_local[:, i, 2], _ori_local[:, 1, 1], _ori_local[:, 1, 2]], "width": 0.002, "scale": 0.5, "color": 'g', "alpha": 1}
+        _vz = {"id": 1, "mode": "force", "data": [pockets_local[:, i, 1], pockets_local[:, i, 2], _ori_local[:, 2, 1], _ori_local[:, 2, 2]], "width": 0.002, "scale": 0.5, "color": 'b', "alpha": 1}
+        vct_list.append(_vy)
+        vct_list.append(_vz)
+    nodes_local = np.full((cage.num_frames, cage.num_nodes, 3), np.nan)
+    for i in range(cage.num_nodes):
+        nodes_local[:, i, :] = cage.transformerSI.transform_coord(cage.nodes[:, i, :3], towhich="tolocal")
+    fline_list = [
+        {"id": 0, "data": [cage.nodes[:, :, 1], cage.nodes[:, :, 2]], "color": 'orange', "alpha": 0.4, "lw": 10},
+        {"id": 1, "data": [nodes_local[:, :, 1], nodes_local[:, :, 2]], "color": 'orange', "alpha": 0.4, "lw": 10},
+    ]
+
+    # axs[2].plot(cage.t, np.degrees(cage.cage_R[:, 0]), lw=1)
+    # axs[2].plot(cage.t, np.degrees(cage.cage_R[:, 1]), lw=1)
+    # axs[2].plot(cage.t, np.degrees(cage.cage_R[:, 2]), lw=1)
+    # axs[2].set(xlim=(0, 1), ylim=(-10, np.degrees(np.max(cage.cage_R[:, 0]))))
+
+    for i in range(2):
+        axs[i].axvline(x=0, lw=0.5, c='k')
+        axs[i].axhline(y=0, lw=0.5, c='k')
+    axs[0].set_aspect(1)
+    axs[3].axis("off")
+    animator = myplotter.MyAnimator(fig, axs, data_list=data_list, vct_list=vct_list, fline_list=fline_list)
+    ani = animator.make_func_ani(skip=5, interval=20)
     plt.show()
-
-
-
 

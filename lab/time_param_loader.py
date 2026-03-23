@@ -19,6 +19,25 @@ time_params = {
         "omega_rot": 100,
         "omega_rev": 0,
         "r_rev": 0,
+        "initial_pos": -np.pi/2,
+        "x": 0,
+        "Ry": 0,
+        "Rz": 0,
+        "a": 1,
+        "b": 1,
+        "omega_deform": 0,
+        "deformation_mode": "circle",
+        "noise_type": "normal",
+        "noise_max": 1
+    },
+    "ROT_GRAVITY": {
+        "duration": 1,
+        "fps": 10000,
+        "system_center": np.zeros(3),
+        "omega_rot": 100,
+        "omega_rev": 0,
+        "r_rev": 1,
+        "initial_pos": -np.pi/2,
         "x": 0,
         "Ry": 0,
         "Rz": 0,
@@ -36,6 +55,25 @@ time_params = {
         "omega_rot": 100,
         "omega_rev": 100,
         "r_rev": 0.2,
+        "initial_pos": np.pi/2,
+        "x": 0,
+        "Ry": 0,
+        "Rz": 0,
+        "a": 1,
+        "b": 1,
+        "omega_deform": 0,
+        "deformation_mode": "circle",
+        "noise_type": "normal",
+        "noise_max": 1
+    },
+    "ROT10_REV": {
+        "duration": 1,
+        "fps": 10000,
+        "system_center": np.zeros(3),
+        "omega_rot": 1000,
+        "omega_rev": 100,
+        "r_rev": 1,
+        "initial_pos": np.pi/2,
         "x": 0,
         "Ry": 0,
         "Rz": 0,
@@ -53,6 +91,7 @@ time_params = {
         "omega_rot": 100,
         "omega_rev": 500,
         "r_rev": 0.2,
+        "initial_pos": np.pi/2,
         "x": 0,
         "Ry": 0,
         "rz": 0,
@@ -69,7 +108,8 @@ time_params = {
         "system_center": np.zeros(3),
         "omega_rot": 100,
         "omega_rev": 1000,
-        "r_rev": 0.2,
+        "r_rev": 5,
+        "initial_pos": np.pi/2,
         "x": 0,
         "Ry": 0,
         "Rz": 0,
@@ -86,12 +126,13 @@ time_params = {
         "system_center": np.zeros(3),
         "omega_rot": 100,
         "omega_rev": 100,
-        "r_rev": 0.2,
+        "r_rev": 2,
+        "initial_pos": np.pi/2,
         "x": 0,
         "Ry": 0,
         "Rz": 0,
-        "a": 2,
-        "b": 1,
+        "a": 1.1,
+        "b": 0.9,
         "omega_deform": 0,
         "deformation_mode": "ellipse",
         "noise_type": "normal",
@@ -103,7 +144,8 @@ time_params = {
         "system_center": np.zeros(3),
         "omega_rot": 100,
         "omega_rev": 500,
-        "r_rev": 0.2,
+        "r_rev": 2,
+        "initial_pos": np.pi/2,
         "x": 0,
         "Ry": 0,
         "Rz": 0,
@@ -120,12 +162,13 @@ time_params = {
         "system_center": np.zeros(3),
         "omega_rot": 100,
         "omega_rev": 1000,
-        "r_rev": 0.2,
+        "r_rev": 2,
+        "initial_pos": np.pi/2,
         "x": 0,
         "Ry": 0,
         "Rz": 0,
-        "a": 1,
-        "b": 1,
+        "a": 1.05,
+        "b": 0.95,
         "omega_deform": 1000,
         "deformation_mode": "ellipse",
         "noise_type": "normal",
@@ -141,6 +184,7 @@ class TimeParam:
     omega_rot: Union[float, np.ndarray]
     omega_rev: Union[float, np.ndarray]
     r_rev: float
+    initial_pos: float
     x: Union[float, np.ndarray]
     Ry: Union[float, np.ndarray]
     Rz: Union[float, np.ndarray]
@@ -151,14 +195,20 @@ class TimeParam:
     noise_type: str
     noise_max: float
 
-class MotionCode(enum.Enum):
-    ROT = 'ROT'
-    ROT_REV = 'ROT_REV'
-    ROT_REV5 = 'ROT_REV5'
-    ROT_REV10 = 'ROT_REV10'
-    ROT_REV_ELLIPSE = 'ROT_REV_ELLIPSE'
-    ROT_REV5_ELLIPSE5 = 'ROT_REV5_ELLIPSE5'
-    ROT_REV10_ELLIPSE10 = 'ROT_REV10_ELLIPSE10'
+class AutoUpperName(enum.Enum):
+    def _generate_next_value_(name, start, count, last_value):
+        return name.upper()
+
+class MotionCode(AutoUpperName):
+    ROT = enum.auto()
+    ROT_GRAVITY = enum.auto()
+    ROT_REV = enum.auto()
+    ROT10_REV = enum.auto()
+    ROT_REV5 = enum.auto()
+    ROT_REV10 = enum.auto()
+    ROT_REV_ELLIPSE = enum.auto()
+    ROT_REV5_ELLIPSE5 = enum.auto()
+    ROT_REV10_ELLIPSE10 = enum.auto()
 
 class TimeParamLoader:
     def __init__(self, time_params=time_params):
@@ -172,6 +222,7 @@ class TimeParamLoader:
             omega_rot = param['omega_rot'],
             omega_rev = param['omega_rev'],
             r_rev = param['r_rev'],
+            initial_pos = param["initial_pos"],
             x = param['x'],
             Ry = param['Ry'],
             Rz = param['Rz'],

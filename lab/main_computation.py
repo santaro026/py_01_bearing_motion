@@ -143,7 +143,7 @@ def analyze_cage(markers, markers_ref, fps, lsmmode="numpy"):
     markers_abcdef = np.zeros((num_frames, 6))
     markers_xyabtheta = np.zeros((num_frames, 5))
     for f in range(num_frames):
-        markers_abcdef[f] = myfitting.fitzgibbon_ellipse(markers[f], allow_nan=False)
+        markers_abcdef[f], _ = myfitting.fitzgibbon_ellipse(markers[f], allow_nan=False)
         _xyabtheta_fitz = myfitting.abcdef2xyabtheta(markers_abcdef[f])
         markers_xyabtheta[f] = np.array([
             _xyabtheta_fitz["center"][0],
@@ -153,15 +153,16 @@ def analyze_cage(markers, markers_ref, fps, lsmmode="numpy"):
             _xyabtheta_fitz["angle"],
         ])
     cage_fitz = markers_xyabtheta[:, :2]
-    cage_minor_radius = markers_xyabtheta[:, 2]
-    cage_major_radius = markers_xyabtheta[:, 3]
+    cage_major_radius = markers_xyabtheta[:, 2]
+    cage_minor_radius = markers_xyabtheta[:, 3]
     logger_cage.binfo(f"fitzgibbon fitting for markers:\nxyabtheta: {np.nanmean(markers_xyabtheta, axis=0)}, {markers_xyabtheta.shape}")
     fitztrj_xyr, fitztrj_lsminfo = myfitting.lsm_for_circle(cage_fitz)
     fitztrj_geom_error = [fitztrj_lsminfo["geom_error_mean"], fitztrj_lsminfo["geom_error_max"], fitztrj_lsminfo["geom_error_std"]]
     logger_cage.binfo(f"lsm fitting for trajectory:\ntrj_xyr: {fitztrj_xyr}\ntrj_geom_error (mean, max, std): {fitztrj_geom_error}")
     logger_cage.measure_time("fitzgibbon_fitting_for_ellipse", mode='e')
 
-    logger_cage.measure_time("calc_angle", mode='s')
+    #### calculate rotation speed
+    logger_cage.measure_time("calc_rotspeed", mode='s')
     markers_angles = np.zeros((num_frames, num_markers))
     for i in range(num_markers):
         markers_angles[:, i] = np.arctan2(markers[:, i, 1]-cage[:, 1], markers[:, i, 0]-cage[:, 0])
@@ -171,12 +172,28 @@ def analyze_cage(markers, markers_ref, fps, lsmmode="numpy"):
     cage_Rx = np.nanmean(markers_angular_displacement, axis=1)
     cage_Rvx = np.gradient(cage_Rx, t)
     cage_Rvx_avg = np.nanmean(cage_Rvx)
+
+    transformer2d = mycoord.CoordTransformer2D(coordsys_name='', local_origin=trj_center)
+    cage_polar = transformer2d.polar_coord(cage, towhich="topolar")
+    revolution_speed = np.gradient(np.unwrap(cage_polar[:, 1]), t)
+
+    cage_vx = np.gradient(cage[:, 0], t)
+    cage_vy = np.gradient(cage[:, 1], t)
+    cage_v = np.vstack([cage_vx, cage_vy]).T
+    cage_v_norm = np.linalg.norm(cage_v, axis=-1)
+    revolution_speed2 = cage_v_norm / cage_polar[:, 0]
+
+
+
+
     logger_cage.binfo(f"average cage rotation speed: {cage_Rvx_avg/2/np.pi*60} [rpm]\ninitial angle of marker0: {np.degrees(initial_m0_angle)} [degree]")
     logger_cage.binfo(f"max difference of cage center between circle and fitzgibbon fitting: {np.nanmax(cage - cage_fitz, axis=0)}")
-    logger_cage.measure_time("calc_angle", mode='e')
+    logger_cage.measure_time("calc_rotspeed", mode='e')
 
-
+    #### calculate deformation
     logger_cage.measure_time("deformation", mode='s')
+    deformation = myfitting.calc_elliptical_deformation(markers, markers_ref)
+    logger_cage.measure_time("deformation", mode='e')
     system_center = np.zeros((num_frames, 2)) # defined based on inner ring center determined by image in static state
     """
     rotframeSA: center: system, rotspeed: average
@@ -197,11 +214,12 @@ def analyze_cage(markers, markers_ref, fps, lsmmode="numpy"):
 
     logger_cage.measure_time("main", mode='e')
 
-    if 0:
+    if 1:
         data_list = [
-            {"id": 0, "data": markers[:, 1, 0], "c": 'b'},
-            {"id": 0, "data": markers[:, 1, 1], "c": 'r'},
-            {"id": 0, "data": markers_radii[:, 1], "c": 'g'},
+            # {"id": 0, "data": markers[:, 0, 0], "c": 'b'},
+            # {"id": 0, "data": markers[:, 0, 1], "c": 'r'},
+            # {"id": 0, "data": markers_radii[:, 0], "c": 'g'},
+
 
             # {"id": 1, "data": centrifugal_expansion, "c": 'r'},
             # {"id": 1, "data": np.degrees(markers_angles[:, 1]), "c": 'b'},
@@ -210,20 +228,26 @@ def analyze_cage(markers, markers_ref, fps, lsmmode="numpy"):
             # {"id": 1, "data": np.degrees(markers_angular_displacement[:, 3]), "c": 'g'},
             # {"id": 1, "data": np.degrees(markers_angular_displacement[:, 4]), "c": 'c'},
             # {"id": 1, "data": np.degrees(cage_Rx), "c": 'r'},
-            {"id": 1, "data": cage_Rvx/2/np.pi, "c": 'r'},
+            # {"id": 1, "data": cage_Rvx / (2 * np.pi), "c": 'r'},
+            # {"id": 1, "data": cage_Rvx / (2 * np.pi), "c": 'r'},
 
+            # {"id": 2, "data": trj_radii, "c": 'r'},
 
-            {"id": 2, "data": cage[:, 0], "c": 'b'},
-            {"id": 2, "data": cage[:, 1], "c": 'r'},
-            {"id": 2, "data": trj_radii, "c": 'b'},
+            {"id": 0, "data": cage[:, 0], "c": 'r'},
+            {"id": 0, "data": cage[:, 1], "c": 'b'},
+            {"id": 1, "data": cage_polar[:, 0], "c": 'r'},
+            {"id": 1, "data": cage_polar[:, 1], "c": 'b'},
+            {"id": 2, "data": revolution_speed, "c": 'r'},
+            {"id": 2, "data": revolution_speed2, "c": 'b'},
 
         ]
         fig, axs = plt.subplots(3, 1, figsize=(20, 12), sharex=True)
         for i in range(len(data_list)):
             axs[data_list[i]["id"]].plot(t, data_list[i]["data"], lw=1, c=data_list[i]["c"])
-        axs[1].set_ylim(0, 100)
-        axs[2].set_ylim(-1, 1)
-        axs[2].axhline(y=trj_radius, xmin=0, xmax=1, lw=4, alpha=0.2, c='g')
+        for i in range(3):
+            axs[i].axhline(y=0, c='k', lw=0.4)
+        # axs[1].set_ylim(0, 100)
+        # axs[2].set_ylim(-1, 1)
         plt.show()
 
 
@@ -232,8 +256,9 @@ if __name__ == '__main__':
     #### sample data
     import sampledata_generator
     fps = 10000
+    noise_max = 0
     cage = sampledata_generator.SimpleCage(name='', PCD=50, ID=48, OD=52, width=10, num_pockets=8, num_markers=8, num_mesh=100, Dp=6.25, Dw=5.953)
-    cage.time_series_data2(fps=fps, duration=0.2, omega_rot=20*2*np.pi, omega_rev=20*2*np.pi, r_rev=0.4, a=cage.PCD/2, b=cage.PCD/2, omega_deform=0, noise_type="normal", noise_max=0.1*0.1)
+    cage.time_series_data2(fps=fps, duration=0.2, omega_rot=20*2*np.pi, omega_rev=20*2*np.pi, r_rev=0.4, a=cage.PCD/2, b=cage.PCD/2, omega_deform=0, noise_type="normal", noise_max=noise_max)
 
     # datadir = config.ROOT / "data" / ""
     # dataseries_handler = data_handler.DataSeriesHandler()

@@ -5,6 +5,7 @@ Created on Fri Mar 06 18:39:00 2026
 this module provides some auxiliary calculations to improve readability and consistency
 
 """
+
 import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
@@ -35,13 +36,16 @@ class TimeSeriesDataProcessor():
             runs = None
         return runs
 
-    def __init__(self, num_frames=10000, fps=10000):
-        self.num_frames = num_frames
+    def __init__(self, sound=None, num_frames=None, fps=48000):
+        if sound is None and num_frames is None:
+            raise ValueError(f"sound or num_frames must be defined, both is None")
         self.fps = fps
+        self.sound = sound
+        self.num_frames = num_frames if sound is None else len(sound)
         self.duration = self.fps * (self.num_frames - 1)
         self.t = np.linspace(0, self.duration, self.num_frames)
 
-    def convert_trange2frange(self, time_range=None):
+    def cvt_trange2frange(self, time_range=None):
         if time_range is None:
                 frame_range = None
                 frame_id = None
@@ -56,7 +60,7 @@ class TimeSeriesDataProcessor():
             frame_id = np.arange(sf, ef).astype(np.int64)
         return frame_range, frame_id
 
-    def convert_tranges2franges(self, time_ranges=None):
+    def cvt_tranges2franges(self, time_ranges=None):
         if time_ranges is None:
             frame_ranges = None
             frame_ids = None
@@ -91,7 +95,7 @@ class TimeSeriesDataProcessor():
             # if not any(isinstance(r, list) for r in time_ranges2):
             #     time_ranges2 = [time_ranges2]
             if isinstance(time_ranges1[0], (int, float)): time_ranges1 = [time_ranges1]
-            if isinstance(time_ranges2[1], (int, float)): time_ranges2 = [time_ranges2]
+            if isinstance(time_ranges2[0], (int, float)): time_ranges2 = [time_ranges2]
             all_ranges = sorted(time_ranges1 + time_ranges2, key=lambda x: x[0])
             merged = []
             for current in all_ranges:
@@ -127,7 +131,8 @@ class TimeSeriesDataProcessor():
             mask = mask | _m
         return mask
 
-    def calc_rms(self, sound, window_time=0.1):
+    def calc_rms(self, sound=None, window_time=0.1):
+        if sound is None: sound = self.sound
         num_perwin = int(window_time * self.fps)
         _kernel = np.ones(num_perwin) / num_perwin
         sound_pw = signal.fftconvolve(sound**2, _kernel, mode='same')
@@ -136,8 +141,16 @@ class TimeSeriesDataProcessor():
         sound_rms = np.sqrt(sound_pw)
         return sound_rms
 
-    def detect_noise(self, sound, window_time=0.1, threshold_factor=0.1, threshold=None):
-        sound_rms = self.calc_rms(self, sound=sound, window_time=window_time)
+    @staticmethod
+    def cvt_pa2db(rms, p0=20e-6):
+        # eps = 1e-12
+        db = 20 * np.log10(rms / p0)
+        return db
+
+
+    def detect_noise_rms(self, sound=None, window_time=0.1, threshold_factor=0.1, threshold=None):
+        if sound is None: sound = self.sound
+        sound_rms = self.calc_rms(sound=sound, window_time=window_time)
         sound_rms_range = (np.nanmin(sound_rms), np.nanmax(sound_rms))
         threshold = sound_rms_range[0] * threshold_factor if threshold is None else threshold
         mask = sound_rms > threshold

@@ -55,12 +55,19 @@ class DataMapLoader:
         summary = df_summary.select(
             pl.col("test_code").cast(pl.Int32, strict=False),
             pl.col("date").cast(pl.String, strict=False),
+            pl.col("size").cast(pl.String, strict=False),
             pl.col("cage").cast(pl.String, strict=False),
             pl.col("material").cast(pl.String, strict=False),
             pl.col("detail").cast(pl.String, strict=False),
+            pl.col("PCD").cast(pl.Float64, strict=False),
+            pl.col("Dw").cast(pl.Float64, strict=False),
             pl.col("Dp_measured").cast(pl.Float64, strict=False),
+            pl.col("Dl_measured").cast(pl.Float64, strict=False),
+            pl.col("dp_measured").cast(pl.Float64, strict=False),
             pl.col("dl_measured").cast(pl.Float64, strict=False),
             pl.col("Dp_drawing").cast(pl.Float64, strict=False),
+            pl.col("Dl_drawing").cast(pl.Float64, strict=False),
+            pl.col("dp_drawing").cast(pl.Float64, strict=False),
             pl.col("dl_drawing").cast(pl.Float64, strict=False),
             pl.col("noise_result").cast(pl.String, strict=False),
         ).drop_nulls(subset=["test_code"])
@@ -94,7 +101,7 @@ class DataMapLoader:
             raise RuntimeError(f"multiple data ({len(info)} was found by rec{rec}.")
         return info[0]
 
-    def extract_test_info(self, tc):
+    def extract_testinfo(self, tc):
         info = self.summary.filter((pl.col("test_code")) == tc).to_dicts()
         if len(info) == 0:
             raise ValueError(f"no data was found in datamap by tc{tc}.")
@@ -327,6 +334,7 @@ class AudioDataLoader:
         return rec
     @staticmethod
     def identify_data_channel(name, kind, unit):
+        print(f"name, kind, unit: {name}, {kind}, {unit}")
         patterns = {
         "sound" : {
             "name": ["rec", "mic", "teds"],
@@ -334,7 +342,7 @@ class AudioDataLoader:
             "unit": ["pa"]
             },
         "trigger" : {
-            "name": ["trigger"],
+            "name": ["trigger", "rearright"],
             "kind": ["voltage"],
             "unit": ["v"]
             },
@@ -414,8 +422,8 @@ class AudioDataLoader:
                 data_type = AudioDataLoader.identify_data_channel(_d[0], _d[1], _d[2])
                 data_types.append(data_type)
             id_sound = data_types.index("sound") + 2
-            print(f"data_types: {data_types}")
-            print(f"id_sound: {id_sound}")
+            # print(f"data_types: {data_types}")
+            # print(f"id_sound: {id_sound}")
             # df = pl.read_csv(data_path, has_header=False, skip_rows=data_start_id, separator=',', infer_schema_length=1000).cast(pl.Float64, strict=False)
             df = pl.scan_csv(data_path, has_header=False, skip_rows=data_start_id, separator=',', infer_schema_length=1000).select([pl.col("column_1"), pl.col(f"column_{id_sound}")]).cast(pl.Float64, strict=False).collect()
             data = df.to_numpy().astype(float)
@@ -635,7 +643,7 @@ class DataSeriesHandler:
     def __init__(self, config: HandlerConfig | None = None):
         self.config = config
         self.seriesmap: dict[tuple[int, int], Series] = {}
-        self.datamap_loader: DataMapLoader | None = None
+        self.datamaploader: DataMapLoader | None = None
         self.unloaded_coord: list[Path] = []
         self.unloaded_audio: list[Path] = []
         self._logs: list[tuple[str, str]] = []
@@ -681,7 +689,7 @@ class DataSeriesHandler:
         try:
             loader = AudioDataLoader(data_path)
             rec = loader.rec
-            info = self.datamap_loader.extract_info_from_rec(rec)
+            info = self.datamaploader.extract_info_from_rec(rec)
             tc = info["test_code"]
             sc = info["shooting_code"]
         except Exception as e:
@@ -703,7 +711,7 @@ class DataSeriesHandler:
         datamap_list = list(datamap_dir.glob(datamap_glob))
         if len(datamap_list) != 1:
             raise FileNotFoundError(f"multiple datamap file was found, it msut be a single file")
-        self.datamap_loader = DataMapLoader(datamap_list[0])
+        self.datamaploader = DataMapLoader(datamap_list[0])
         for p in coord_dir.glob(coord_glob):
             if p.match(r"*sc00*"):
                 continue
@@ -729,7 +737,7 @@ class DataSeriesHandler:
 
     def select_series(self, tc, sc):
         dataseries = self.seriesmap[(tc, sc)]
-        datamapinfo = self.datamap_loader.extract_info_from_tcsc(tc, sc)
+        datamapinfo = self.datamaploader.extract_info_from_tcsc(tc, sc)
         return dataseries, datamapinfo
 
     def filter(self, tc, sc):

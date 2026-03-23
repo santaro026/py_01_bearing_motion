@@ -252,6 +252,49 @@
         }
     },
 
+    "trajectory_22": {
+        "analysis": {
+            "figsize": [15, 14],
+            "num_axes": 5,
+            "gs_shape": [3, 1],
+            "gs_height_ratios": [1, 1, 0.15],
+            "gs_width_ratios": [1],
+            "gs_whspace": [0, 0.2],
+            "gsub_shape": [[1, 2], [1, 2], [1, 1]],
+            "gsub_height_ratios": [[1], [1], [1]],
+            "gsub_width_ratios": [[1, 1], [1, 1], [1]],
+            "gsub_whspace": [[0.2, 0.0], [0.2, 0.0], [0, 0]],
+            "labelsize": 10,
+            "ticklength": 3.5,
+            "tickwidth": 0.8,
+            "major_grid_lw": 0.7,
+            "minor_grid_lw": 0.4,
+            "marge_size": [0.08, 0.06, 0.06, 0.02],
+            "notell_pos": [0.02, 0.04],
+            "notelr_pos": [0.7, 0.04]
+        },
+        "slide": {
+            "figsize": [15, 14],
+            "num_axes": 5,
+            "gs_shape": [3, 1],
+            "gs_height_ratios": [1, 1, 0.15],
+            "gs_width_ratios": [1],
+            "gs_whspace": [0.2, 0.3],
+            "gsub_shape": [[1, 2], [1, 2], [1, 1]],
+            "gsub_height_ratios": [[1], [1], [1]],
+            "gsub_width_ratios": [[1, 1], [1, 1], [1]],
+            "gsub_whspace": [[0.2, 0.0], [0.2, 0.0], [0, 0]],
+            "labelsize": 28,
+            "ticklength": 10,
+            "tickwidth": 1,
+            "major_grid_lw": 0.7,
+            "minor_grid_lw": 0.4,
+            "marge_size": [0.1, 0.04, 0.06, 0.02],
+            "notell_pos": [0.02, 0.04],
+            "notelr_pos": [0.7, 0.04]
+        }
+    },
+
     "trajectory_with_timeseries": {
         "analysis": {
             "figsize": [15, 12],
