@@ -19,7 +19,10 @@ import json
 
 import config
 
-class TimeSeriesDataProcessor():
+eps = 1e-12
+p0 = 20e-6
+
+class TimeSeriesProcessor():
     @staticmethod
     def extract_runs(mask):
         runs = []
@@ -45,10 +48,10 @@ class TimeSeriesDataProcessor():
         self.duration = self.fps * (self.num_frames - 1)
         self.t = np.linspace(0, self.duration, self.num_frames)
 
-    def cvt_trange2frange(self, time_range=None):
+    def _time2frame(self, time_range=None):
         if time_range is None:
-                frame_range = None
-                frame_id = None
+            frame_range = None
+            frame_id = None
         else:
             st = time_range[0]
             et = time_range[1]
@@ -59,8 +62,7 @@ class TimeSeriesDataProcessor():
             frame_range = [sf, ef]
             frame_id = np.arange(sf, ef).astype(np.int64)
         return frame_range, frame_id
-
-    def cvt_tranges2franges(self, time_ranges=None):
+    def time2frame(self, time_ranges=None):
         if time_ranges is None:
             frame_ranges = None
             frame_ids = None
@@ -75,7 +77,7 @@ class TimeSeriesDataProcessor():
                 ef = et * self.fps
                 sf = int(sf + 1) if sf - int(sf) != 0 else int(sf)
                 ef = int(ef + 1) if ef - int(ef) != 0 else int(ef)
-                frame_range, frame_id = self.convert_trange2frange(time_range=time_range)
+                frame_range, frame_id = self._time2frame(time_range=time_range)
                 frame_ranges.append(frame_range)
                 frame_ids.append(frame_id)
         return frame_ranges, frame_ids
@@ -90,10 +92,6 @@ class TimeSeriesDataProcessor():
         elif time_ranges1 is not None and time_ranges2 is None:
             merged = time_ranges1
         else:
-            # if not any(isinstance(r, list) for r in time_ranges1):
-            #     time_ranges1 = [time_ranges1]
-            # if not any(isinstance(r, list) for r in time_ranges2):
-            #     time_ranges2 = [time_ranges2]
             if isinstance(time_ranges1[0], (int, float)): time_ranges1 = [time_ranges1]
             if isinstance(time_ranges2[0], (int, float)): time_ranges2 = [time_ranges2]
             all_ranges = sorted(time_ranges1 + time_ranges2, key=lambda x: x[0])
@@ -131,32 +129,44 @@ class TimeSeriesDataProcessor():
             mask = mask | _m
         return mask
 
-    def calc_rms(self, sound=None, window_time=0.1):
+    def calc_rms(self, sound=None, window_time=0.1, edge="nan"):
         if sound is None: sound = self.sound
         num_perwin = int(window_time * self.fps)
         _kernel = np.ones(num_perwin) / num_perwin
         sound_pw = signal.fftconvolve(sound**2, _kernel, mode='same')
-        sound_pw[:num_perwin//2] = np.nan
-        sound_pw[-num_perwin//2:] = np.nan
+        if edge == "cut":
+            sound_pw[:num_perwin//2] = np.nan
+            sound_pw[-num_perwin//2:] = np.nan
+        elif edge == "pad":
+            sound_pw[:num_perwin//2] = sound_pw[num_perwin//2]
+            sound_pw[-num_perwin//2:] = sound_pw[-num_perwin//2]
         sound_rms = np.sqrt(sound_pw)
         return sound_rms
 
     @staticmethod
-    def cvt_pa2db(rms, p0=20e-6):
-        # eps = 1e-12
-        db = 20 * np.log10(rms / p0)
+    def pw2db(signal, x0=1):
+        db = 10 * np.log10((signal + eps) / x0**2)
+        return db
+    @staticmethod
+    def mag2db(signal, x0=1):
+        db = 20 * np.log10((signal + eps) / x0)
+        return db
+    @staticmethod
+    def pa2db(rms, p0=20e-6):
+        db = 20 * np.log10((rms + eps) / p0)
         return db
 
-
-    def detect_noise_rms(self, sound=None, window_time=0.1, threshold_factor=0.1, threshold=None):
+    def detect_noise_rms(self, sound=None, window_time=0.1, threshold_factor=0.1, threshold=None, mode="log"):
         if sound is None: sound = self.sound
         sound_rms = self.calc_rms(sound=sound, window_time=window_time)
+        if mode == "log":
+            sound_rms = TimeSeriesProcessor.pa2db(sound_rms)
         sound_rms_range = (np.nanmin(sound_rms), np.nanmax(sound_rms))
         threshold = sound_rms_range[0] * threshold_factor if threshold is None else threshold
         mask = sound_rms > threshold
-        okruns = TimeSeriesDataProcessor.extract_runs(mask) # get runs [start, end], with end not included.
+        okruns = TimeSeriesProcessor.extract_runs(mask) # get runs [start, end], with end not included.
         okruns_id = np.where(mask)[0]
-        ngruns = TimeSeriesDataProcessor.extract_runs(~mask) # get runs that is not OK
+        ngruns = TimeSeriesProcessor.extract_runs(~mask) # get runs that is not OK
         ngruns_id = np.where(~mask)[0]
         return okruns, okruns_id, ngruns, ngruns_id, threshold
 
@@ -164,7 +174,7 @@ class TimeSeriesDataProcessor():
 if __name__ == '__main__':
     print('---- test ----\n')
 
-    processor = TimeSeriesDataProcessor(num_frames=20, fps=1)
+    processor = TimeSeriesProcessor(num_frames=20, fps=1)
 
     time_ranges = np.array([0, 3])
     time_ranges = [[0.2, 21.1], [32.2, 35]]
@@ -185,7 +195,7 @@ if __name__ == '__main__':
     time_mask = processor.get_mask(time_ranges=time_ranges)
     print(f'mask: {time_mask}')
 
-    runs = TimeSeriesDataProcessor.extract_runs(time_mask)
+    runs = TimeSeriesProcessor.extract_runs(time_mask)
     print(f'runs: {runs}')
 
 

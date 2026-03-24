@@ -48,6 +48,21 @@ class CoordTransformer2d:
         p_result = p_rotated + center
         return p_result
 
+    @staticmethod
+    def cartesian2polar(p):
+        p = np.atleast_2d(p)
+        if p.shape[1] == 4: p = p[:, :2]
+        r = np.linalg.norm(p, axis=1)
+        theta = np.arctan2(p[:, 1], p[:, 0])
+        p_transformed = np.stack([r, theta], axis=1)
+        return p_transformed
+    @staticmethod
+    def poalr2cartesian(p):
+        x = p[:, 0] * np.cos(p[:, 1])
+        y = p[:, 0] * np.sin(p[:, 1])
+        p_transformed = np.stack([x, y], axis=1)
+        return p_transformed
+
     def transform_point(self, p, towhich="tolocal"):
         p = np.atleast_2d(p)
         num_frames = max(len(p), len(self.theta))
@@ -100,20 +115,6 @@ class CoordTransformer2d:
             raise ValueError(f"[Error] p must be 2-dimension in the {self.transform_coord.__name__}, p: {p.shape}")
         return p_transformed
 
-    def polar_coord(self, p, towhich='tocartesian'):
-        p = np.atleast_2d(p)
-        if p.shape[1] == 4: p = p[:, :2]
-        if towhich == 'topolar':
-            r = np.linalg.norm(p, axis=1)
-            theta = np.arctan2(p[:, 1], p[:, 0])
-            p_transformed = np.stack([r, theta], axis=1)
-        elif towhich == 'tocartesian':
-            x = p[:, 0] * np.cos(p[:, 1])
-            y = p[:, 0] * np.sin(p[:, 1])
-            p_transformed = np.stack([x, y], axis=1)
-        else:
-            raise ValueError(f'Unknown transform direction : {towhich}')
-        return p_transformed
 
 class CoordTransformer3d_np:
     def __init__(self, name='', local_origin=np.zeros(3), euler_angles=np.zeros(3), rot_order='zyx'):

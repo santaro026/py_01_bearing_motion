@@ -192,8 +192,7 @@ def run_main_computation(inf_markers: Path, inf_zero: Path, inf_audio: Path, tes
     # p_center_rotframe2 = res_lsm_main_markers_rotframe2[0:2] # it must be (0, 0)
     # r_markers_rotframe2 = res_lsm_main_markers_rotframe2[2] # radius of markers when rotationg
     p_center_rotframe2_polar = mycoord.transform_polar_2d(p_center_rotframe2, towhich='topolar')
-    p_center_rotframe2_polar[1] = np.where(p_center_rotframe2_polar[1]<0, p_center_rotframe2_polar[1]+np.radians(360), p_center_rotframe2_polar[1])
-    p_center_rotframe2_polar[1] = np.unwrap(p_center_rotframe2_polar[1])
+    p_center_rotframe2_polar[1] = np.where(p_center_rotframe2_polar[1]<0, p_center_rotframe2_polar[1]+np.radians(360), p_center_rotframe2_polar[1]) p_center_rotframe2_polar[1] = np.unwrap(p_center_rotframe2_polar[1])
     ## transform coordinates to a rotating frame3 with actual cage angular velocity, using the cage center as the origin
     p_markers_rotframe3 = np.zeros((num_points*2, num_frames))
     for i_p in range(num_points):

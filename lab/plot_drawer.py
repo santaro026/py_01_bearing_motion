@@ -19,6 +19,7 @@ from pathlib import Path
 import json
 
 from mymods import myplotter, myfft, mylogger
+from mymods.myplotter import MyPlotter, PlotSizeCode, MyAnimator
 
 import config
 import data_handler
