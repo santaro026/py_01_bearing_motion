@@ -43,7 +43,6 @@ def main(dataseries: data_handler.Series, datamapinfo):
 
     logger_main.measure_time("main", 'e')
 
-
 def analyze_cage(markers, markers_ref, fps, lsmmode="numpy", check=False):
     """
     calculate cage motion form markers coordinates.
@@ -241,26 +240,40 @@ def analyze_sound(sound, fs):
     logger_sound = mylogger.MyLogger("logger_sound", outdir=outdir)
     logger_sound.measure_time("main", mode='s')
     N = len(sound)
-    t = np.arange(N) / fps
+    t = np.arange(N) / fs
     duration = N / fs
-    logger_sound.binfo(f"#### inputdata\nsound: {sound.shape}\nsample_rate: {fs}\duration: {duration}\nN: {N}")
+    logger_sound.binfo(f"#### inputdata\nsound: {sound.shape}\nsample_rate: {fs}\nduration: {duration}\nN: {N}")
 
-    sound_processor = data_processor.TimeSeriesProcessor(sound=sound)
-    rms = sound_processor.calc_rms(edge="pad")
+    sound_processor = data_processor.TimeSeriesProcessor(sound=sound, fs=fs)
+    window_time = 0.01
+    noise_detection = sound_processor.detect_noise_rms(window_time=window_time)
+
+    #### check
+    rms = sound_processor.calc_rms(edge="pad", window_time=window_time)
     rms_db = data_processor.TimeSeriesProcessor.pa2db(rms)
-    shift = rms[0] - rms_db[0]
-    print(shift)
-    rms_db = rms_db + shift
+    shift = rms_db[0] - rms[0]
+    rms = rms + shift
 
     plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.LANDSCAPE_FIG_21)
     fig, axs = plotter.myfig()
 
     axs[0].plot(t, sound, lw=1)
-    axs[1].plot(t, rms, lw=1, c='b')
-    axs[1].plot(t, rms_db, lw=1, c='r')
+    axs[1].plot(t, rms, lw=1, c='b', label="rms")
+    axs[1].plot(t, rms_db, lw=1, c='g', label="rms_dB")
+    axs[1].plot(t, noise_detection["rms"], lw=1, c='r', label="rms for detection")
+    axs[1].axhline(y=noise_detection["threshold"], lw=1, c='k', ls="--")
+
+
+    noisy_period = []
+    for _run in noise_detection["noisy_runs"]:
+        st, et = _run[0] / sound_processor.fs, _run[1] / sound_processor.fs
+        noisy_period.append([st, et])
+        axs[1].axvspan(st, et, color='r', alpha=0.2)
+
+    axs[1].legend()
     plt.show()
 
-
+    logger_sound.binfo(f"noisy_period: {str(noisy_period)} [sec]")
 
     logger_sound.measure_time("main", mode='e')
 
@@ -287,7 +300,7 @@ if __name__ == '__main__':
     markers_ref = cage.markers_p_noise[0, :, 1:]
     makers = cage.markers_p_noise[:, :, 1:] * 1.01
 
-    t = np.linspace(0, 1, 48000)
+    t = np.linspace(0, 1, 48000, endpoint=False)
     _sound = np.cos(400 * 2*np.pi*t)
     sound = np.where(t > 0.2, _sound*5, _sound)
     sound = np.where(t > 0.4, _sound*1.2, sound)
