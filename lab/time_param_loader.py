@@ -5,6 +5,7 @@ Created on Wed Oct 22 22:31:35 2025
 
 
 """
+
 import numpy as np
 
 from dataclasses import dataclass
@@ -54,7 +55,7 @@ time_params = {
         "system_center": np.zeros(3),
         "omega_rot": 100,
         "omega_rev": 100,
-        "r_rev": 0.2,
+        "r_rev": 2,
         "initial_pos": np.pi/2,
         "x": 0,
         "Ry": 0,
@@ -90,11 +91,11 @@ time_params = {
         "system_center": np.zeros(3),
         "omega_rot": 100,
         "omega_rev": 500,
-        "r_rev": 0.2,
+        "r_rev": 2,
         "initial_pos": np.pi/2,
         "x": 0,
         "Ry": 0,
-        "rz": 0,
+        "Rz": 0,
         "a": 1,
         "b": 1,
         "omega_deform": 0,
@@ -149,9 +150,9 @@ time_params = {
         "x": 0,
         "Ry": 0,
         "Rz": 0,
-        "a": 1,
-        "b": 1,
-        "omega_deform": 500,
+        "a": 1.02,
+        "b": 0.98,
+        "omega_deform": 400,
         "deformation_mode": "ellipse",
         "noise_type": "normal",
         "noise_max": 1
@@ -178,6 +179,7 @@ time_params = {
 
 @dataclass
 class TimeParam:
+    name: str
     duration: float
     fps: float
     system_center: np.ndarray
@@ -216,6 +218,7 @@ class TimeParamLoader:
     def param_factory(self, motion_code):
         param = self.time_params[motion_code.name]
         time_param = TimeParam(
+            name = motion_code.name,
             duration = param['duration'],
             fps = param['fps'],
             system_center = param['system_center'],

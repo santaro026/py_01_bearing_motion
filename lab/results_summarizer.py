@@ -13,14 +13,26 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import json
 from dataclasses import dataclass, asdict
-
+import config
 
 @dataclass
 class Test:
     tc: int
-    bearing: str
+    size: str
     cage: str
     material: str
+    detail: str
+    PCD: float
+    Dw: float
+    Dp_measured: float
+    Dl_measured: float
+    dp_measured: float
+    dl_measured: float
+    Dp_drawing: float
+    Dl_drawing: float
+    dp_drawing: float
+    dl_drawing: float
+    noise_results: str
 
 @dataclass
 class Camera:
@@ -50,15 +62,26 @@ class Summary:
     camera: Camera
     audio: Audio
 
-
-if __name__ == "__main__":
-    print("---- run ----")
-
+def set_summary(datamapfile):
+    datamap_loader = DataMapLoader(datamapfile)
+    summary = datamap_loader.summary.to_dicts()
     test = Test(
-        tc=0,
-        bearing="40BNR10",
+        tc=summary["test_code"],
+        size=summary["size"],
         cage="TYN",
-        material="PA46GF25"
+        material="PA46GF25",
+        detail="this is sammple note",
+        PCD=53.3,
+        Dw=5.953,
+        Dp_measured=None,
+        Dl_measured=None,
+        dp_measured=None,
+        dl_measured=None,
+        Dp_drawing=6.25,
+        Dl_drawing=58.7,
+        dp_drawing=6.25-5.953,
+        dl_drawing=0.553,
+        noise_results="x"
     )
     camera = Camera(
         fps=8000,
@@ -80,11 +103,22 @@ if __name__ == "__main__":
         num_samples=480000,
         duration=10
     )
-    data = Summary(test=test, camera=camera, audio=audio)
-    print(data)
 
-    import config
-    jsonpath = config.ROOT / "results" / "test" / "test.json"
-    with open(jsonpath, "w", encoding="utf-8") as f:
-        json.dump(asdict(data), f, indent=4)
+if __name__ == "__main__":
+    print("---- run ----")
+
+    from data_handler import DataMapLoader
+
+    datamapfile = Path("D:/1005_tyn/02_experiments_and_analyses/list_visualization_test.xlsx")
+    datamap_loader = DataMapLoader(datamapfile)
+    # print(datamap_loader.datamap.columns)
+    test = datamap_loader.summary.to_dicts()
+
+    outdir = config.ROOT / "results" / "test"
+    # datamap_loader.summary.write_json(outdir/"test.json")
+    # datamap_loader.summary.write_ndjson(outdir/"testnd.json")
+
+    with open(outdir/"test.json", "w", encoding="utf-8") as f:
+        json.dump(test, f, indent=2)
+
 

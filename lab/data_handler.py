@@ -22,6 +22,17 @@ from mymods import myfitting
 
 import config
 
+def csvdata2npdata(csvdata):
+    csvdata = np.asarray(csvdata)
+    num_frames = len(csvdata)
+    npdata = csvdata.reshape(num_frames, -1, 2)
+    return npdata
+
+def npdata2csvdata(npdata):
+    num_frames, num_points, dimension = npdata.shape
+    csvdata = npdata.reshape(num_frames, int(num_points * dimension))
+    return csvdata
+
 class DataMapLoader:
     @staticmethod
     def load_datamap(datamapfile):
@@ -55,8 +66,11 @@ class DataMapLoader:
         summary = df_summary.select(
             pl.col("test_code").cast(pl.Int32, strict=False),
             pl.col("date").cast(pl.String, strict=False),
-            pl.col("size").cast(pl.String, strict=False),
+            pl.col("bearing").cast(pl.String, strict=False),
             pl.col("cage").cast(pl.String, strict=False),
+            pl.col("camera").cast(pl.String, strict=False),
+            pl.col("laser_doppler").cast(pl.String, strict=False),
+            pl.col("sound").cast(pl.String, strict=False),
             pl.col("material").cast(pl.String, strict=False),
             pl.col("detail").cast(pl.String, strict=False),
             pl.col("PCD").cast(pl.Float64, strict=False),
@@ -70,14 +84,14 @@ class DataMapLoader:
             pl.col("dp_drawing").cast(pl.Float64, strict=False),
             pl.col("dl_drawing").cast(pl.Float64, strict=False),
             pl.col("noise_result").cast(pl.String, strict=False),
-        ).drop_nulls(subset=["test_code"])
+        ).drop_nulls(subset=["test_code", "date", "camera"]).filter(pl.col("laser_doppler").is_null())
         return datamap, summary
-    def __init__(self, datamap_path):
-        self._datamap_path = datamap_path
-        self._datamap, self._summary = DataMapLoader.load_datamap(self._datamap_path)
+    def __init__(self, datamappath):
+        self._path = datamappath
+        self._datamap, self._summary = DataMapLoader.load_datamap(self._path)
     @property
-    def datamap_path(self):
-        return self._datamap_path
+    def path(self):
+        return self._path
     @property
     def datamap(self):
         return self._datamap
@@ -112,78 +126,21 @@ class DataMapLoader:
     def __repr__(self):
         return (
             f"DataMapLoader:\n"
-            f"datamap_path: {self.datamap_path}\n"
+            f"path: {self.path}\n"
             f"num_data: {self.datamap.shape[0]}\n"
+            f"num_test: {self.summary.shape[0]}\n"
         )
 
 class CoordDataLoader:
-    @staticmethod
-    def get_label_from_filename(filename):
-        tc_match = re.search(r"tc(\d+)", filename)
-        sc_match = re.search(r"sc(\d+)", filename)
-        tc = int(tc_match.group(1)) if tc_match else None
-        sc = int(sc_match.group(1)) if sc_match else None
-        return tc, sc
-
-    @staticmethod
-    def get_info_from_filename(filename):
-        fps_match = re.search(r"(\d+)fps", filename)
-        rpm_match = re.search(r"(\d+)rpm", filename)
-        rec_match = re.search(r"rec(\d+)", filename)
-        fps = int(fps_match.group(1)) if fps_match else None
-        rpm = int(rpm_match.group(1)) if rpm_match else None
-        rec = int(rec_match.group(1)) if rec_match else None
-        return fps, rpm, rec
-
-    @staticmethod
-    def load_markers(data_path=None, data_format="tema", num_cage_markers=8, dimension=2):
-        if data_format == "tema":
-            skip_rows = 3
-            skip_data = 0
-            separator = '\t'
-        data = pl.read_csv(data_path, has_header=False, skip_rows=skip_rows, separator=separator, infer_schema_length=50000).cast(pl.Float64, strict=False).to_numpy()[:, skip_data:]
-        t = data[:, 0]
-        if t[0] != 0:
-            raise ValueError(f"loaded data does not start from 0 [sec], {data_path}, start form {t[0]}")
-        points = data[:, 1:]
-        if points.shape[1] % dimension == 0: # check data shape
-            num_points = points.shape[1] // dimension
-            num_ring_markers = num_points - num_cage_markers
-            if not (num_points == num_cage_markers or num_points == num_cage_markers + 1):
-                raise RuntimeError(f"loading data shape does not match: {data_path}, num_points is {num_points}")
-        else:
-            raise RuntimeError(f"the number of coordinate data points is odd, confirm the input data: {data_path}")
-        num_frames = len(t)
-        points = points.reshape((num_frames, num_points, dimension))
-        cage_markers = points[:, :num_cage_markers]
-        if num_ring_markers > 0:
-            ring_markers = points[:, num_cage_markers:num_cage_markers+num_ring_markers]
-        else:
-            ring_markers = None
-        return t, cage_markers, ring_markers
-
-    @staticmethod
-    def load_markers_zero(data_path, data_format="tema", num_cage_markers=8, dimension=2):
-        if data_format == "tema":
-            data = pl.read_csv(data_path, has_header=False, skip_rows=3, separator='\t', infer_schema_length=10).cast(pl.Float64, strict=False).to_numpy()[:, 1:]
-            cage_markers = data[:-1, :dimension].astype(float)[np.newaxis, :, :]
-            ring_center = data[-1, :dimension].astype(float)[np.newaxis, np.newaxis, :]
-            ring_area = data[-1, dimension].astype(float) # float
-            if cage_markers.shape[1] != num_cage_markers:
-                raise RuntimeError(f"loading data shape does not match: {data_path}")
-        return cage_markers, ring_center, ring_area
-
-    @staticmethod
-    def calc_scaling_factor_pixel2mm(measured_value=1, reference_value=1, reference_mode="area"):
-        if reference_mode == "area":
-            scaling_factor_pixel2mm = np.sqrt(reference_value/measured_value)
-        return scaling_factor_pixel2mm
-
     def __init__(self, data_path, zero_data_path, data_format="tema", num_cage_markers=8, zero_data_format="tema", pixel2mm_reference_mode="area", reference_value=np.pi*(49.1/2)**2, dimension=2):
         self._data_path = data_path
         self._zero_data_path = zero_data_path
-        self._tc, self._sc = CoordDataLoader.get_label_from_filename(self._data_path.name)
-        self._fps, self._rpm, self._rec = CoordDataLoader.get_info_from_filename(self._data_path.name)
+        filenameinfo = CoordDataLoader.parse_filename(self._data_path.name)
+        self._tc = filenameinfo["tc"]
+        self._sc = filenameinfo["sc"]
+        self._rec = filenameinfo["rec"]
+        self._fps = filenameinfo["fps"]
+        self._rpm = filenameinfo["rpm"]
         self._dimension = dimension
         self._num_cage_markers = num_cage_markers
         self.t_data, self.cage_markers_pixel, self.ring_markers_pixel = CoordDataLoader.load_markers(data_path=self._data_path, data_format=data_format, num_cage_markers=self._num_cage_markers, dimension=self._dimension)
@@ -198,7 +155,6 @@ class CoordDataLoader:
         self.cage_markers_zero = (self.pixel2mm * self.cage_markers_zero_pixel - self.ring_center_zero)
         self.ring_markers = self.pixel2mm * self.ring_markers_pixel - self.ring_center_zero if self.ring_markers_pixel is not None else None
         self._duration = float(self.t[-1] - self.t[0])
-
     @property
     def data_path(self):
         return self._data_path
@@ -238,6 +194,71 @@ class CoordDataLoader:
     @property
     def reference_value(self):
         return self._reference_value
+
+    @staticmethod
+    def parse_filename(filename):
+        tc_match = re.search(r"tc(\d+)", filename)
+        sc_match = re.search(r"sc(\d+)", filename)
+        fps_match = re.search(r"(\d+)fps", filename)
+        rpm_match = re.search(r"(\d+)rpm", filename)
+        rec_match = re.search(r"rec(\d+)", filename)
+        tc = int(tc_match.group(1)) if tc_match else None
+        sc = int(sc_match.group(1)) if sc_match else None
+        fps = int(fps_match.group(1)) if fps_match else None
+        rpm = int(rpm_match.group(1)) if rpm_match else None
+        rec = int(rec_match.group(1)) if rec_match else None
+        info = {
+            "tc": tc,
+            "sc": sc,
+            "rec": rec,
+            "fps": fps,
+            "rpm": rpm,
+        }
+        return info
+
+    @staticmethod
+    def load_markers(data_path=None, data_format="tema", num_cage_markers=8, dimension=2):
+        if data_format == "tema":
+            skip_rows = 3
+            skip_columns = 0
+            separator = '\t'
+        data = pl.read_csv(data_path, has_header=False, skip_rows=skip_rows, separator=separator, infer_schema_length=50000).cast(pl.Float64, strict=False).to_numpy()[:, skip_columns:]
+        t = data[:, 0]
+        if t[0] != 0:
+            raise ValueError(f"loaded data does not start from 0 [sec], {data_path}, start form {t[0]}")
+        points = data[:, 1:]
+        if points.shape[1] % dimension == 0: # check data shape
+            num_points = points.shape[1] // dimension
+            num_ring_markers = num_points - num_cage_markers
+            if not (num_points == num_cage_markers or num_points == num_cage_markers + 1):
+                raise RuntimeError(f"loading data shape does not match: {data_path}, num_points is {num_points}")
+        else:
+            raise RuntimeError(f"the number of coordinate data points is odd, confirm the input data: {data_path}")
+        num_frames = len(t)
+        points = points.reshape((num_frames, num_points, dimension))
+        cage_markers = points[:, :num_cage_markers]
+        if num_ring_markers > 0:
+            ring_markers = points[:, num_cage_markers:num_cage_markers+num_ring_markers]
+        else:
+            ring_markers = None
+        return t, cage_markers, ring_markers
+
+    @staticmethod
+    def load_markers_zero(data_path, data_format="tema", num_cage_markers=8, dimension=2):
+        if data_format == "tema":
+            data = pl.read_csv(data_path, has_header=False, skip_rows=3, separator='\t', infer_schema_length=10).cast(pl.Float64, strict=False).to_numpy()[:, 1:]
+            cage_markers = data[:-1, :dimension].astype(float)[np.newaxis, :, :]
+            ring_center = data[-1, :dimension].astype(float)[np.newaxis, np.newaxis, :]
+            ring_area = data[-1, dimension].astype(float) # float
+            if cage_markers.shape[1] != num_cage_markers:
+                raise RuntimeError(f"loading data shape does not match: {data_path}")
+        return cage_markers, ring_center, ring_area
+
+    @staticmethod
+    def calc_scaling_factor_pixel2mm(measured_value=1, reference_value=1, reference_mode="area"):
+        if reference_mode == "area":
+            scaling_factor_pixel2mm = np.sqrt(reference_value/measured_value)
+        return scaling_factor_pixel2mm
 
     def __repr__(self):
         ring_center_zero_preview = np.array2string(self.ring_center_zero.squeeze(), precision=9, separator=", ")
@@ -321,17 +342,26 @@ class CoordSeries:
 
 class AudioDataLoader:
     @staticmethod
-    def get_label_from_filename(filename):
+    def parse_filename(filename):
         tc_match = re.search(r"tc(\d+)", filename)
         sc_match = re.search(r"sc(\d+)", filename)
+        fps_match = re.search(r"(\d+)fps", filename)
+        rpm_match = re.search(r"(\d+)rpm", filename)
+        rec_match = re.search(r"rec(\d+)", filename)
         tc = int(tc_match.group(1)) if tc_match else None
         sc = int(sc_match.group(1)) if sc_match else None
-        return tc, sc
-    @staticmethod
-    def get_info_from_filename(filename):
-        rec_match = re.search(r"REC(\d+)", filename)
+        fps = int(fps_match.group(1)) if fps_match else None
+        rpm = int(rpm_match.group(1)) if rpm_match else None
         rec = int(rec_match.group(1)) if rec_match else None
-        return rec
+        info = {
+            "tc": tc,
+            "sc": sc,
+            "rec": rec,
+            "fps": fps,
+            "rpm": rpm,
+        }
+        return info
+
     @staticmethod
     def identify_data_channel(name, kind, unit):
         print(f"name, kind, unit: {name}, {kind}, {unit}")
@@ -366,6 +396,7 @@ class AudioDataLoader:
         else:
             raise ValueError(f"data type doesnt match: (name, kind, unit) = ({_name}, {_kind}, {_unit})")
         return data_type
+
     @staticmethod
     def load_sound(data_path=None):
         data_format = data_path.suffix
@@ -466,8 +497,10 @@ class AudioDataLoader:
         return trigger_idx, sound_idx
     def __init__(self, data_path):
         self._data_path = data_path
-        self._tc, self._sc = AudioDataLoader.get_label_from_filename(self._data_path.name)
-        self._rec = AudioDataLoader.get_info_from_filename(self._data_path.name)
+        filenameinfo = CoordDataLoader.parse_filename(self._data_path.name)
+        self._tc = filenameinfo["tc"]
+        self._sc = filenameinfo["sc"]
+        self._rec = filenameinfo["rec"]
         self._t, self._sound = AudioDataLoader.load_sound(self._data_path)
         self._num_samples = len(self._t)
         self._duration = float(self._t[-1] - self._t[0])
@@ -795,17 +828,83 @@ class DataSeriesHandler:
                 self._logs.append((level, message))
 
 
+def load_map_csv(csv_path, xrange=(0, 1, 0.05), yrange=(6, 7, 0.05), xlabel=r'$\delta l$ [mm]', ylabel=r'$D_p$ [mm]'):
+    if isinstance(csv_path, str): csv_path = Path(csv_path)
+    df = pl.read_csv(csv_path, has_header=False, infer_schema_length=1000)
+    df_ndarray = df.to_numpy()
+    delta_l_mesh = df_ndarray[0, 1:].astype(np.float16)
+    Dp_mesh = df_ndarray[1:, 0].astype(np.float16)
+    result = df_ndarray[1:, 1:].astype(np.int8)
+    print(f'delta_l_mesh, Dp_mesh, result: {delta_l_mesh.shape}, {Dp_mesh.shape}, {result.shape}')
+    # fig, ax = set_colormap(xmesh=delta_l_mesh, ymesh=Dp_mesh, z=result, xrange=xrange, yrange=yrange, xlabel=xlabel, ylabel=ylabel, note=f'{csv_path.stem}')
+    fig, ax = set_colormap(xmesh=delta_l_mesh, ymesh=Dp_mesh, z=result, xrange=xrange, yrange=yrange, xlabel=xlabel, ylabel=ylabel, note=f'{csv_path.stem}')
+    return fig, ax
+
+def set_colormap(xmesh, ymesh, z, xrange=(0, 1, 0.05), yrange=(6, 7, 0.05), xlabel=r'$\delta l$ [mm]', ylabel=r'$D_p$ [mm]', note=''):
+    from matplotlib.colors import ListedColormap
+    import matplotlib.ticker as ticker
+    # plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.SQUARE_FIG)
+    # fig, axs = plotter.myfig(slide=True)
+    # ax = axs[0]
+    # ax.set_aspect(1)
+    fig, ax = plt.subplots(figsize=(12, 12))
+    fig.subplots_adjust(left=0.08, right=0.92, top=0.99, bottom=0.05)
+    cmap = ListedColormap([(0, 0, 0, 0.2), 'white'])
+    ax.pcolormesh(xmesh, ymesh, z, cmap=cmap, vmin=0, vmax=0.1, shading='nearest')
+    ax.set_xlim(xrange[0], xrange[1])
+    ax.set_ylim(yrange[0], yrange[1])
+    ax.set_xticks(np.arange(xrange[0], xrange[1], xrange[2]))
+    # ax.set_yticks(np.arange(yrange[0], yrange[1], yrange[2]))
+    ax.set_yticks(np.arange(np.floor(yrange[0]*10**1)/10**1, yrange[1], yrange[2]))
+    ax.minorticks_on()
+    ax.tick_params(axis='both', which='both', direction='in')
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(which='major', lw=0.7)
+    ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+    ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+    ax.grid(which='minor', lw=0.4)
+    ax.set_aspect(1)
+    fig.text(0.7, 0.01, note, ha='left', va='center', fontsize=8)
+    return fig, ax
+
+def set_colormap2(xmesh, ymesh, z, xrange=(0, 1, 0.1), yrange=(6, 7, 0.1), xlabel=r'$\delta l$ [mm]', ylabel=r'$D_p$ [mm]', note=''):
+    from matplotlib.colors import ListedColormap
+    import matplotlib.ticker as ticker
+    plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.SQUARE_FIG)
+    fig, axs = plotter.myfig(slide=True)
+    ax = axs[0]
+    cmap = ListedColormap([(0, 0, 0, 0.2), 'white'])
+    ax.pcolormesh(xmesh, ymesh, z, cmap=cmap, vmin=0, vmax=0.1, shading='nearest')
+    ax.set_xlim(xrange[0], xrange[1])
+    ax.set_ylim(yrange[0], yrange[1])
+    ax.set_xticks(np.arange(xrange[0], xrange[1]*1.001, xrange[2]))
+    ax.set_yticks(np.arange(np.floor(yrange[0]*10**1)/10**1, yrange[1]*1.001, yrange[2]))
+    ax.minorticks_on()
+    ax.tick_params(axis='both', which='both', direction='in')
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(which='major', lw=1)
+    ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+    ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(5))
+    ax.grid(which='minor', lw=0.1)
+    ax.set_aspect(1)
+    # fig.text(0.7, 0.01, note, ha='left', va='center', fontsize=8)
+    return fig, ax
 
 
 if __name__ == "__main__":
     print("---- test ----")
 
     datadir = config.ROOT / "data" / "sampledata"
-
-    # datamapfile = datadir / "list_visualization_test.xlsx"
-    # datamap_loader = DataMapLoader(datamapfile)
-    # datamap = datamap_loader.datamap
+    datamapfile = Path("D:/1005_tyn/02_experiments_and_analyses/list_visualization_test.xlsx")
+    datamap_loader = DataMapLoader(datamapfile)
+    datamap = datamap_loader.datamap
     # print(datamap.head())
+    # print(datamap.columns)
+    summary = datamap_loader.summary.drop_nulls(subset=["noise_result"])
+    print(summary.columns)
+    print(summary)
     # info = datamap_loader.extract_info_from_tcsc(1, 2)
     # print(info)
     # datamap.write_csv(datadir/"datamap.csv")
@@ -815,10 +914,8 @@ if __name__ == "__main__":
         # print(l)
 
     # audio_ld = AudioDataLoader(datadir/"251127_002_5000rpm_silnet.WAV")
-
     # audio_ld = AudioDataLoader(datadir/"REC3002.csv")
-
-    audio_ld = AudioDataLoader(datadir/"REC3405.csv")
+    # audio_ld = AudioDataLoader(datadir/"REC3405.csv")
     # audio_ld0 = AudioDataLoader(datadir/"REC3405.mat")
     # audio_ld1 = AudioDataLoader(datadir/"REC3405.wav")
 
@@ -828,17 +925,79 @@ if __name__ == "__main__":
     # sound_error = audio_ld0.sound - audio_ld1.sound
     # print(f"max of error: {np.nanmax(np.abs(sound_error))}")
 
-    fig, ax = plt.subplots(figsize=(12, 8))
-    ax.plot(audio_ld.t, audio_ld.sound, lw=0.4, c='b')
-
+    # fig, ax = plt.subplots(figsize=(15, 8))
+    # ax.plot(audio_ld.t, audio_ld.sound, lw=0.4, c='b')
     # ax.plot(np.arange(len(t_error)), t_error, lw=0.4, c='b')
     # ax.plot(np.arange(len(t_error)), sound_error, lw=0.4, c='b')
     # ax.plot(audio_ld0.t, audio_ld0.sound, lw=0.4, c='b')
     # ax.plot(audio_ld1.t, audio_ld1.sound, lw=0.4, c='r')
     # ax.set(ylim=(-10, 10))
+    # ax.axhline(y=0, lw=0.1, c='k')
+    # plt.show()
 
-    ax.axhline(y=0, lw=0.1, c='k')
-    plt.show()
+
+    csv_path = Path(r"D:/200_python/02_specification_for_v2cage/results/251017_Dpdlmap/Dp_vs_deltal_40BNRv2.csv")
+    # csv_path = config.ROOT/"results"/"251017_Dpdlmap"/"Dp_vs_deltal_70BNRv2.csv"
+    # fig, ax = load_map_csv(csv_path, xrange=(0, 1, 0.05), yrange=(6, 7, 0.05)) # argument xrange and yrange difine the plot range as  (start, end, step)
+    fig, ax = load_map_csv(csv_path, xrange=(0.1, 0.7, 0.1), yrange=(6, 6.6, 0.1)) # argument xrange and yrange difine the plot range as  (start, end, step)
+    # fig, ax = load_map_csv(csv_path, xrange=(0, 1, 0.1), yrange=(8.8, 9.8, 0.1)) # argument xrange and yrange difine the plot range as  (start, end, step)
+
+
+    # Mapping from noise_result to annotation text
+    marker_map = {
+        "o": "o",
+        "x": "x",
+        "z": "+",
+        "^": "^",
+    }
+    color_map = {
+        "o": "g",
+        "x": "r",
+        "z": "k",
+        "^": "b",
+    }
+    zorder_map = {
+        "o": 10,
+        "x": 100,
+        "z": 10,
+        "^": 20,
+    }
+
+    for row in summary.iter_rows(named=True):
+        print("***")
+        # Get the marker type from noise_result
+        noise = row["noise_result"]
+        # Decide annotation text
+        mark = marker_map.get(noise)
+        color = color_map.get(noise)
+        zorder = zorder_map.get(noise)
+        # Example positions (replace with your real columns)
+        x = row["dl_measured"]
+        y = row["Dp_measured"]
+        if x is None: x = row["dl_drawing"]
+        if y is None: y = row["Dp_drawing"]
+        ax.scatter(x, y, marker=mark, color=color, s=100, zorder=zorder)
+        ax.annotate(
+            row["cage"],                 # Text to draw
+            (x, y),               # Position (x, y)
+            textcoords="offset points",
+            xytext=(5, 5),         # Offset from point
+            ha="left",
+            va="bottom",
+            fontsize=10,
+            color="red" if mark == "x" else "black"
+        )
+
+    # annotate_point = (0.2, 6.2)
+    # ax.scatter(annotate_point[0], annotate_point[1], marker='x', c='r', s=100)
+    # ax.annotate('sample', xy=annotate_point, xytext=(0.4, 1), textcoords='offset points', fontsize=20)
+
+
+
+    plt.show(block=True)
+    # fig.savefig(outdir/f"{csv_path.stem}.png")
+
+
 
 
 
