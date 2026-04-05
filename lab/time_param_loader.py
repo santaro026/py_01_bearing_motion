@@ -134,7 +134,7 @@ time_params = {
         "Rz": 0,
         "a": 1.1,
         "b": 0.9,
-        "omega_deform": 0,
+        "omega_deform": 100,
         "deformation_mode": "ellipse",
         "noise_type": "normal",
         "noise_max": 1
@@ -152,7 +152,7 @@ time_params = {
         "Rz": 0,
         "a": 1.02,
         "b": 0.98,
-        "omega_deform": 400,
+        "omega_deform": 500,
         "deformation_mode": "ellipse",
         "noise_type": "normal",
         "noise_max": 1
@@ -168,8 +168,8 @@ time_params = {
         "x": 0,
         "Ry": 0,
         "Rz": 0,
-        "a": 1.05,
-        "b": 0.95,
+        "a": 1.02,
+        "b": 0.98,
         "omega_deform": 1000,
         "deformation_mode": "ellipse",
         "noise_type": "normal",

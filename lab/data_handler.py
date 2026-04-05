@@ -17,8 +17,7 @@ from pydub import AudioSegment
 import re
 from pathlib import Path
 from dataclasses import dataclass, field
-
-from mymods import myfitting
+import json
 
 import config
 
@@ -33,11 +32,47 @@ def npdata2csvdata(npdata):
     csvdata = npdata.reshape(num_frames, int(num_points * dimension))
     return csvdata
 
+def parse_filename(filename):
+    tc_match = re.search(r"tc(\d+)", filename)
+    sc_match = re.search(r"sc(\d+)", filename)
+    fps_match = re.search(r"(\d+)fps", filename)
+    rpm_match = re.search(r"(\d+)rpm", filename)
+    rec_match = re.search(r"rec(\d+)", filename)
+    tc = int(tc_match.group(1)) if tc_match else None
+    sc = int(sc_match.group(1)) if sc_match else None
+    fps = int(fps_match.group(1)) if fps_match else None
+    rpm = int(rpm_match.group(1)) if rpm_match else None
+    rec = int(rec_match.group(1)) if rec_match else None
+    info = {
+        "tc": tc,
+        "sc": sc,
+        "rec": rec,
+        "fps": fps,
+        "rpm": rpm,
+    }
+    return info
+
 class DataMapLoader:
+    def __init__(self, datamappath):
+        self._path = datamappath
+        _datamap = DataMapLoader.load_datamap(self._path)
+        self._datamap = _datamap["datamap"]
+        self._summary = _datamap["summary"]
+    @property
+    def path(self):
+        return self._path
+    @property
+    def datamap(self):
+        return self._datamap
+    @property
+    def summary(self):
+        return self._summary
+
+    #### read excel datalist
     @staticmethod
     def load_datamap(datamapfile):
-        df = pl.read_excel(datamapfile, sheet_name="all", has_header=True, drop_empty_cols=True, drop_empty_rows=True, infer_schema_length=1000)
-        datamap = df.select(
+        df_datamap = pl.read_excel(datamapfile, sheet_name="all", has_header=True, drop_empty_cols=True, drop_empty_rows=True, infer_schema_length=1000)
+        datamap = df_datamap.select(
             pl.col("test_code").cast(pl.Int32, strict=False),
             pl.col("shooting_code").cast(pl.Int32, strict=False),
             pl.col("date").cast(pl.String, strict=False),
@@ -73,6 +108,7 @@ class DataMapLoader:
             pl.col("sound").cast(pl.String, strict=False),
             pl.col("material").cast(pl.String, strict=False),
             pl.col("detail").cast(pl.String, strict=False),
+            pl.col("inner_ring_diameter").cast(pl.Float64, strict=False),
             pl.col("PCD").cast(pl.Float64, strict=False),
             pl.col("Dw").cast(pl.Float64, strict=False),
             pl.col("Dp_measured").cast(pl.Float64, strict=False),
@@ -85,19 +121,11 @@ class DataMapLoader:
             pl.col("dl_drawing").cast(pl.Float64, strict=False),
             pl.col("noise_result").cast(pl.String, strict=False),
         ).drop_nulls(subset=["test_code", "date", "camera"]).filter(pl.col("laser_doppler").is_null())
-        return datamap, summary
-    def __init__(self, datamappath):
-        self._path = datamappath
-        self._datamap, self._summary = DataMapLoader.load_datamap(self._path)
-    @property
-    def path(self):
-        return self._path
-    @property
-    def datamap(self):
-        return self._datamap
-    @property
-    def summary(self):
-        return self._summary
+        result = {
+            "datamap": datamap,
+            "summary": summary,
+        }
+        return result
 
     def extract_info_from_tcsc(self, tc, sc):
         info = self.datamap.filter((pl.col("test_code") == tc) & (pl.col("shooting_code") == sc)).to_dicts()
@@ -131,8 +159,27 @@ class DataMapLoader:
             f"num_test: {self.summary.shape[0]}\n"
         )
 
+    def validate_datalist(self, datadir):
+        for info in self.datamap.iter_rows(named=True):
+            tc = info.get("test_code")
+            sc = info.get("shooting_code")
+            datapathlist = list(datadir.rglobe(f"*tc{tc:02}_sc{sc:02}*"))
+            if len(datapathlist) != 1:
+                raise ValueError(f"the number of datapathlist by tc-sc must be one: {datapathlist}")
+            datapath = datapathlist[0]
+            filename_info = parse_filename(datapath.name)
+            _rec = filename_info["rec"]
+            _rpm = filename_info["rpm"]
+            _fps = filename_info["fps"]
+            if _rpm != info["commanded_rot_speed"]:
+                raise ValueError(f"data condition of rpm does not match.\nfilename info: {_rpm}, datamap info: {info["commanded_rot_speed"]}")
+            if _fps !=  info["fps"]:
+                raise ValueError(f"data condition of fps does not match.\nfilename info: {_fps}, datamap info: {info["fps"]}")
+            if _rec != info["recording_number"]:
+                raise ValueError(f"data condition of rec does not match.\nfilename info: {_rec}, datamap info: {info["recording_number"]}")
+
 class CoordDataLoader:
-    def __init__(self, data_path, zero_data_path, data_format="tema", num_cage_markers=8, zero_data_format="tema", pixel2mm_reference_mode="area", reference_value=np.pi*(49.1/2)**2, dimension=2):
+    def __init__(self, data_path, zero_data_path, data_format="tema", num_cage_markers=8, ring_area_reference=np.pi*(50/2)**2, dimension=2):
         self._data_path = data_path
         self._zero_data_path = zero_data_path
         filenameinfo = CoordDataLoader.parse_filename(self._data_path.name)
@@ -143,17 +190,12 @@ class CoordDataLoader:
         self._rpm = filenameinfo["rpm"]
         self._dimension = dimension
         self._num_cage_markers = num_cage_markers
-        self.t_data, self.cage_markers_pixel, self.ring_markers_pixel = CoordDataLoader.load_markers(data_path=self._data_path, data_format=data_format, num_cage_markers=self._num_cage_markers, dimension=self._dimension)
+        self.t_data, self.cage_markers, self.ring_markers = CoordDataLoader.load_markers(data_path=self._data_path, data_format=data_format, num_cage_markers=self._num_cage_markers, dimension=self._dimension)
         self._num_frames = len(self.t_data)
-        self.cage_markers_zero_pixel, self.ring_center_zero_pixel, self.ring_area_zero_pixel = CoordDataLoader.load_markers_zero(data_path=self._zero_data_path, data_format=zero_data_format, num_cage_markers=self._num_cage_markers, dimension=self._dimension)
-        self._pixel2mm_reference_mode = pixel2mm_reference_mode
-        self._reference_value = reference_value
-        self.pixel2mm = CoordDataLoader.calc_scaling_factor_pixel2mm(measured_value=self.ring_area_zero_pixel, reference_value=self._reference_value, reference_mode=self._pixel2mm_reference_mode)
+        self.cage_markers_zero, self.ring_center_zero, self.ring_area_zero = CoordDataLoader.load_markers_zero(data_path=self._zero_data_path, data_format=data_format, num_cage_markers=self._num_cage_markers, dimension=self._dimension)
+        self._ring_area_reference = ring_area_reference
+        self.pixel2mm = np.sqrt(self.ring_area_zero / self.ring_area_reference)
         self.t = np.arange(self._num_frames) / self._fps
-        self.ring_center_zero = (self.pixel2mm * self.ring_center_zero_pixel)
-        self.cage_markers = self.pixel2mm * self.cage_markers_pixel - self.ring_center_zero
-        self.cage_markers_zero = (self.pixel2mm * self.cage_markers_zero_pixel - self.ring_center_zero)
-        self.ring_markers = self.pixel2mm * self.ring_markers_pixel - self.ring_center_zero if self.ring_markers_pixel is not None else None
         self._duration = float(self.t[-1] - self.t[0])
     @property
     def data_path(self):
@@ -189,11 +231,8 @@ class CoordDataLoader:
     def rec(self):
         return self._rec
     @property
-    def pixel2mm_reference_mode(self):
-        return self._pixel2mm_reference_mode
-    @property
-    def reference_value(self):
-        return self._reference_value
+    def ring_area_reference(self):
+        return self._ring_area_reference
 
     @staticmethod
     def parse_filename(filename):
@@ -222,6 +261,10 @@ class CoordDataLoader:
             skip_rows = 3
             skip_columns = 0
             separator = '\t'
+        elif data_format == "sample":
+            skip_rows = 1
+            skip_columns = 0
+            separator = ','
         data = pl.read_csv(data_path, has_header=False, skip_rows=skip_rows, separator=separator, infer_schema_length=50000).cast(pl.Float64, strict=False).to_numpy()[:, skip_columns:]
         t = data[:, 0]
         if t[0] != 0:
@@ -252,26 +295,28 @@ class CoordDataLoader:
             ring_area = data[-1, dimension].astype(float) # float
             if cage_markers.shape[1] != num_cage_markers:
                 raise RuntimeError(f"loading data shape does not match: {data_path}")
+        elif data_format == "sample":
+            data = pl.read_csv(data_path, has_header=False, skip_rows=1, separator=',', infer_schema_length=10).cast(pl.Float64, strict=False).to_numpy()[:, 1:]
+            cage_markers = data[:-1, :dimension].astype(float)[np.newaxis, :, :]
+            ring_center = data[-1, :dimension].astype(float)[np.newaxis, np.newaxis, :]
+            ring_area = data[-1, dimension].astype(float) # float
+            if cage_markers.shape[1] != num_cage_markers:
+                raise RuntimeError(f"loading data shape does not match: {data_path}")
         return cage_markers, ring_center, ring_area
-
-    @staticmethod
-    def calc_scaling_factor_pixel2mm(measured_value=1, reference_value=1, reference_mode="area"):
-        if reference_mode == "area":
-            scaling_factor_pixel2mm = np.sqrt(reference_value/measured_value)
-        return scaling_factor_pixel2mm
 
     def __repr__(self):
         ring_center_zero_preview = np.array2string(self.ring_center_zero.squeeze(), precision=9, separator=", ")
-        ring_center_zero_pixel_preview = np.array2string(self.ring_center_zero_pixel, precision=9, separator=", ")
+        ring_center_zero_preview = np.array2string(self.ring_center_zero, precision=9, separator=", ")
+        ring_markers_shape = self.ring_markers.shape if self.ring_markers is not None else None
         return (
             f"data_path: {self.data_path}\n"
             f"zero_data_path: {self.zero_data_path}\n"
             f"tc: {self.tc}, sc: {self.sc}\n"
             f"rpm: {self.rpm}, rec: {self.rec}\n"
             f"fps: {self.fps} [frame/sec], duration: {self.duration} [sec], num_frames: {self.num_frames}, dimension: {self.dimension}\n"
-            f"biring area: {self.ring_area_zero_pixel} [pixel] ({self.reference_value} [mm**2]), pexel2mm: {self.pixel2mm}\n"
-            f"ring_center: {ring_center_zero_preview} [mm] ({ring_center_zero_pixel_preview} [pixel])\n"
-            f"cage_markers: {self.cage_markers.shape}, ring_markers: {self.ring_markers.shape}"
+            f"biring area: {self.ring_area_zero} [pixel] ({self.ring_area_reference} [mm**2]), pixel2mm: {self.pixel2mm} [mm/pixel]\n"
+            f"ring_center: {ring_center_zero_preview} [mm] ({ring_center_zero_preview} [pixel])\n"
+            f"cage_markers: {self.cage_markers.shape}, ring_markers: {ring_markers_shape}"
         )
 
 @dataclass
@@ -341,6 +386,57 @@ class CoordSeries:
         return f"CoordLoader:\n{repr(self.loader)}"
 
 class AudioDataLoader:
+    def __init__(self, data_path):
+        self._data_path = data_path
+        filenameinfo = CoordDataLoader.parse_filename(self._data_path.name)
+        self._tc = filenameinfo["tc"]
+        self._sc = filenameinfo["sc"]
+        self._rec = filenameinfo["rec"]
+        self._t, self._sound = AudioDataLoader.load_sound(self._data_path)
+        self._num_samples = len(self._t)
+        self._duration = float(self._t[-1] - self._t[0])
+        self._sample_rate = float(1 / (self._t[1] - self._t[0]))
+    @property
+    def data_path(self):
+        return self._data_path
+    @property
+    def tc(self):
+        return self._tc
+    @tc.setter
+    def tc(self, value):
+        if self._tc is None:
+            self._tc = value
+        else: raise AttributeError("tc has already certain value, you cannot rewrite tc.")
+    @property
+    def sc(self):
+        return self._sc
+    @sc.setter
+    def sc(self, value):
+        if self._sc is None:
+            self._sc = value
+        else: raise AttributeError("sc has already certain value, you cannot rewrite sc.")
+    @property
+    def rec(self):
+        return self._rec
+    @property
+    def sample_rate(self):
+        return self._sample_rate
+    @sample_rate.setter
+    def sample_rate(self, value):
+        self._sample_rate = value
+    @property
+    def num_samples(self):
+        return self._num_samples
+    @property
+    def duration(self):
+        return self._duration
+    @property
+    def t(self):
+        return self._t
+    @property
+    def sound(self):
+        return self._sound
+
     @staticmethod
     def parse_filename(filename):
         tc_match = re.search(r"tc(\d+)", filename)
@@ -361,41 +457,6 @@ class AudioDataLoader:
             "rpm": rpm,
         }
         return info
-
-    @staticmethod
-    def identify_data_channel(name, kind, unit):
-        print(f"name, kind, unit: {name}, {kind}, {unit}")
-        patterns = {
-        "sound" : {
-            "name": ["rec", "mic", "teds"],
-            "kind": ["sound pressure"],
-            "unit": ["pa"]
-            },
-        "trigger" : {
-            "name": ["trigger", "rearright"],
-            "kind": ["voltage"],
-            "unit": ["v"]
-            },
-        "velocity" : {
-            "name": ["velocity"],
-            "kind": ["sound velocity"],
-            "unit": ["m/s"]
-            },
-        "displacement" : {
-            "name": ["displacement", "displaement"],
-            "kind": ["displacement"],
-            "unit": ["m"]
-            }
-        }
-        for k, v in patterns.items():
-            if name.lower() in v["name"]: _name = k
-            if kind.lower() in v["kind"]: _kind = k
-            if unit.lower() in v["unit"]: _unit = k
-        if _name == _kind == _unit:
-            data_type = _name
-        else:
-            raise ValueError(f"data type doesnt match: (name, kind, unit) = ({_name}, {_kind}, {_unit})")
-        return data_type
 
     @staticmethod
     def load_sound(data_path=None):
@@ -476,11 +537,47 @@ class AudioDataLoader:
             trigger_idx, sound_idx = AudioDataLoader.classify_sound_trigger_channel(sound0[:1000], sound1[:1000])
             # print(f"sound_idx: {sound_idx}")
             sound = [sound0, sound1][sound_idx]
-            return t, sound
         return t, sound
+
     @staticmethod
     def normalize_sound(sound, bit_depth):
         return sound.astype(np.float64) / float(2**(bit_depth-1))
+
+    @staticmethod
+    def identify_data_channel(name, kind, unit):
+        # print(f"name, kind, unit: {name}, {kind}, {unit}")
+        patterns = {
+        "sound" : {
+            "name": ["rec", "mic", "teds"],
+            "kind": ["sound pressure"],
+            "unit": ["pa"]
+            },
+        "trigger" : {
+            "name": ["trigger", "rearright"],
+            "kind": ["voltage"],
+            "unit": ["v"]
+            },
+        "velocity" : {
+            "name": ["velocity"],
+            "kind": ["sound velocity"],
+            "unit": ["m/s"]
+            },
+        "displacement" : {
+            "name": ["displacement", "displaement"],
+            "kind": ["displacement"],
+            "unit": ["m"]
+            }
+        }
+        for k, v in patterns.items():
+            if name.lower() in v["name"]: _name = k
+            if kind.lower() in v["kind"]: _kind = k
+            if unit.lower() in v["unit"]: _unit = k
+        if _name == _kind == _unit:
+            data_type = _name
+        else:
+            raise ValueError(f"data type doesnt match: (name, kind, unit) = ({_name}, {_kind}, {_unit})")
+        return data_type
+
     @staticmethod
     def classify_sound_trigger_channel(d0, d1):
         # slope0 = np.max(np.abs(np.diff(d0)))
@@ -495,56 +592,7 @@ class AudioDataLoader:
         trigger_idx = 0 if rms0 < rms1 else 1
         sound_idx = 1 - trigger_idx
         return trigger_idx, sound_idx
-    def __init__(self, data_path):
-        self._data_path = data_path
-        filenameinfo = CoordDataLoader.parse_filename(self._data_path.name)
-        self._tc = filenameinfo["tc"]
-        self._sc = filenameinfo["sc"]
-        self._rec = filenameinfo["rec"]
-        self._t, self._sound = AudioDataLoader.load_sound(self._data_path)
-        self._num_samples = len(self._t)
-        self._duration = float(self._t[-1] - self._t[0])
-        self._sample_rate = float(1 / (self._t[1] - self._t[0]))
-    @property
-    def data_path(self):
-        return self._data_path
-    @property
-    def tc(self):
-        return self._tc
-    @tc.setter
-    def tc(self, value):
-        if self._tc is None:
-            self._tc = value
-        else: raise AttributeError("tc has already certain value, you cannot rewrite tc.")
-    @property
-    def sc(self):
-        return self._sc
-    @sc.setter
-    def sc(self, value):
-        if self._sc is None:
-            self._sc = value
-        else: raise AttributeError("sc has already certain value, you cannot rewrite sc.")
-    @property
-    def rec(self):
-        return self._rec
-    @property
-    def sample_rate(self):
-        return self._sample_rate
-    @sample_rate.setter
-    def sample_rate(self, value):
-        self._sample_rate = value
-    @property
-    def num_samples(self):
-        return self._num_samples
-    @property
-    def duration(self):
-        return self._duration
-    @property
-    def t(self):
-        return self._t
-    @property
-    def sound(self):
-        return self._sound
+
     def __repr__(self):
         t_preview = np.array2string(self.t[:5], precision=10, separator=", ")
         sound_preview = np.array2string(self.sound[:5], precision=10, separator=", ")
@@ -871,6 +919,7 @@ def set_colormap(xmesh, ymesh, z, xrange=(0, 1, 0.05), yrange=(6, 7, 0.05), xlab
 def set_colormap2(xmesh, ymesh, z, xrange=(0, 1, 0.1), yrange=(6, 7, 0.1), xlabel=r'$\delta l$ [mm]', ylabel=r'$D_p$ [mm]', note=''):
     from matplotlib.colors import ListedColormap
     import matplotlib.ticker as ticker
+    import myplotter
     plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.SQUARE_FIG)
     fig, axs = plotter.myfig(slide=True)
     ax = axs[0]
@@ -891,6 +940,43 @@ def set_colormap2(xmesh, ymesh, z, xrange=(0, 1, 0.1), yrange=(6, 7, 0.1), xlabe
     ax.set_aspect(1)
     # fig.text(0.7, 0.01, note, ha='left', va='center', fontsize=8)
     return fig, ax
+
+def map_results(csv_path):
+    fig, ax = load_map_csv(csv_path, xrange=(0.1, 0.7, 0.1), yrange=(6, 6.6, 0.1)) # argument xrange and yrange difine the plot range as  (start, end, step)
+    marker_map = {
+        "o": {"marker": "o", "color": 'g', "size": 10, "alpha": 1, "zorder": 10},
+        "x": {"marker": "x", "color": 'm', "size": 10, "alpha": 1, "zorder": 10},
+        "^": {"marker": "^", "color": 'b', "size": 10, "alpha": 0.4, "zorder": 10},
+        "u": {"marker": "+", "color": 'k', "size": 10, "alpha": 0.4, "zorder": 10},
+    }
+    for row in summary.iter_rows(named=True):
+        print("***")
+        # Get the marker type from noise_result
+        noise = row["noise_result"]
+        # Decide annotation text
+        marker = marker_map.get(noise).get("marker")
+        color = marker_map.get(noise).get("color")
+        size = marker_map.get(noise).get("size")
+        alpha = marker_map.get(noise).get("alpha")
+        zorder = marker_map.get(noise).get("zorder")
+        # Example positions (replace with your real columns)
+        x = row["dl_measured"]
+        y = row["Dp_measured"]
+        if x is None: x = row["dl_drawing"]
+        if y is None: y = row["Dp_drawing"]
+        ax.scatter(x, y, marker=marker, color=color, size=size, alpha=alpha, zorder=zorder)
+        ax.annotate(
+            row["cage"],
+            (x, y),
+            textcoords="offset points",
+            xytext=(5, 5),
+            ha="left",
+            va="bottom",
+            fontsize=10,
+            color='k'
+        )
+    return fig, ax
+
 
 
 if __name__ == "__main__":
@@ -937,64 +1023,7 @@ if __name__ == "__main__":
 
 
     csv_path = Path(r"D:/200_python/02_specification_for_v2cage/results/251017_Dpdlmap/Dp_vs_deltal_40BNRv2.csv")
-    # csv_path = config.ROOT/"results"/"251017_Dpdlmap"/"Dp_vs_deltal_70BNRv2.csv"
-    # fig, ax = load_map_csv(csv_path, xrange=(0, 1, 0.05), yrange=(6, 7, 0.05)) # argument xrange and yrange difine the plot range as  (start, end, step)
-    fig, ax = load_map_csv(csv_path, xrange=(0.1, 0.7, 0.1), yrange=(6, 6.6, 0.1)) # argument xrange and yrange difine the plot range as  (start, end, step)
-    # fig, ax = load_map_csv(csv_path, xrange=(0, 1, 0.1), yrange=(8.8, 9.8, 0.1)) # argument xrange and yrange difine the plot range as  (start, end, step)
-
-
-    # Mapping from noise_result to annotation text
-    marker_map = {
-        "o": "o",
-        "x": "x",
-        "z": "+",
-        "^": "^",
-    }
-    color_map = {
-        "o": "g",
-        "x": "r",
-        "z": "k",
-        "^": "b",
-    }
-    zorder_map = {
-        "o": 10,
-        "x": 100,
-        "z": 10,
-        "^": 20,
-    }
-
-    for row in summary.iter_rows(named=True):
-        print("***")
-        # Get the marker type from noise_result
-        noise = row["noise_result"]
-        # Decide annotation text
-        mark = marker_map.get(noise)
-        color = color_map.get(noise)
-        zorder = zorder_map.get(noise)
-        # Example positions (replace with your real columns)
-        x = row["dl_measured"]
-        y = row["Dp_measured"]
-        if x is None: x = row["dl_drawing"]
-        if y is None: y = row["Dp_drawing"]
-        ax.scatter(x, y, marker=mark, color=color, s=100, zorder=zorder)
-        ax.annotate(
-            row["cage"],                 # Text to draw
-            (x, y),               # Position (x, y)
-            textcoords="offset points",
-            xytext=(5, 5),         # Offset from point
-            ha="left",
-            va="bottom",
-            fontsize=10,
-            color="red" if mark == "x" else "black"
-        )
-
-    # annotate_point = (0.2, 6.2)
-    # ax.scatter(annotate_point[0], annotate_point[1], marker='x', c='r', s=100)
-    # ax.annotate('sample', xy=annotate_point, xytext=(0.4, 1), textcoords='offset points', fontsize=20)
-
-
-
-    plt.show(block=True)
+    fig, ax = map_results(csv_path)
     # fig.savefig(outdir/f"{csv_path.stem}.png")
 
 

@@ -30,19 +30,6 @@ from mymods import myplotter, mylogger, myfitting, mycoord
 outdir = config.ROOT / "results" / "test"
 outdir.mkdir(exist_ok=True, parents=True)
 
-def main(dataseries: data_handler.Series, datamapinfo):
-    logger_main = mylogger.MyLogger("main", outdir=outdir)
-    logger_main.info(f"datamapinfo: {datamapinfo}")
-    logger_main.info(f"dataseries: {repr(dataseries)}")
-
-    logger_main.measure_time("main", 's')
-    coord = dataseries.coord
-    audio = dataseries.audio
-
-    cir_cage_zero = myfitting.kasa_circle()
-
-    logger_main.measure_time("main", 'e')
-
 def analyze_cage(markers, markers_ref, fps, lsmmode="numpy", check=False):
     """
     calculate cage motion form markers coordinates.
@@ -56,7 +43,6 @@ def analyze_cage(markers, markers_ref, fps, lsmmode="numpy", check=False):
 
     """
 
-    # markers = mm_per_pixel * markers
     logger_cage = mylogger.MyLogger("logger_cage", outdir=outdir)
     logger_cage.measure_time("main", mode='s')
     num_frames = markers.shape[0]
@@ -280,14 +266,25 @@ def analyze_sound(sound, fs):
 if __name__ == '__main__':
     print("---- test ----")
     #### sample data
-    fps = 10000
-    noise_max = 0
-    cage = mycage.SimpleCage(name='', PCD=50, ID=48, OD=52, width=10, num_pockets=8, num_markers=8, num_mesh=100, Dp=6.25, Dw=5.953)
-    cage.time_series_data2(fps=fps, duration=0.2, omega_rot=20*2*np.pi, omega_rev=20*2*np.pi, r_rev=0.4, a=1, b=1, omega_deform=0, noise_type="normal", noise_max=noise_max)
 
-    # datadir = config.ROOT / "data" / ""
-    # dataseries_handler = data_handler.DataSeriesHandler()
-    # dataseries_handler.scan_directory(datadir, datadir, datadir, "tc*", "REC*", "*.xlsx")
+    datadir = config.ROOT / "sampledata" / "SIMPLE50" / "ROT_REV"
+    print(f"datadir: {datadir.exists()}")
+
+    def get_datapath(datadir):
+        markers = list(datadir.glob("*markers.csv"))
+        markers_noise = list(datadir.glob("*markers_noise.csv"))
+        zero = list(datadir.glob("*zero.csv"))
+        if len(markers) != 1:
+            raise ValueError(f"makers data must be 1, {len(markers)}")
+        if len(markers_noise) != 1:
+            raise ValueError(f"makers_noise data must be 1, {len(markers_noise)}")
+        if len(zero) != 1:
+            raise ValueError(f"zero data must be 1, {len(zero)}")
+        return markers[0], markers_noise[0], zero[0]
+
+    markers, markers_noise, zero = get_datapath(datadir)
+    coorddl = data_handler.CoordDataLoader(markers, zero, data_format="sample")
+    print(repr(coorddl))
 
     # for k, s in dataseries_handler.seriesmap.items():
         # print(k, s)
@@ -297,8 +294,7 @@ if __name__ == '__main__':
 
     # dataseries, datamapinfo = dataseries_handler.select_series(23, 1)
 
-    markers_ref = cage.markers_p_noise[0, :, 1:]
-    makers = cage.markers_p_noise[:, :, 1:] * 1.01
+
 
     t = np.linspace(0, 1, 48000, endpoint=False)
     _sound = np.cos(400 * 2*np.pi*t)
@@ -308,7 +304,6 @@ if __name__ == '__main__':
     sound = np.where(t > 0.8, _sound*2, sound)
 
     # analyze_cage(makers, markers_ref, fps=fps, lsmmode="compare", check=True)
-    analyze_sound(sound, fs=48000)
-
+    # analyze_sound(sound, fs=48000)
 
 
