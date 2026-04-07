@@ -47,7 +47,7 @@ class SimpleCage:
         self.markers_pos = np.linspace(0, 2*np.pi, self.num_markers, endpoint=False) + np.pi/2
         self.nodes_pos = np.linspace(0, 2*np.pi, self.num_nodes, endpoint=True) + np.pi/2
         self.cage_zero = np.zeros((1, 3))
-        markers_zero, _ = SimpleCage.make_pockets(np.zeros((1, 6)), self.num_pockets, 0, a=1, b=1, p0_angle=np.pi/6)
+        markers_zero, _ = SimpleCage.make_pockets(np.zeros((1, 6)), self.num_pockets, 0, a=self.PCD/2, b=self.PCD/2, p0_angle=np.pi/6)
         self.markers_zero = markers_zero[:, :, :3]
     @staticmethod
     def omega2p(omega, r, dt, num_frames=None):
