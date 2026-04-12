@@ -174,7 +174,116 @@ time_params = {
         "deformation_mode": "ellipse",
         "noise_type": "normal",
         "noise_max": 1
+    },
+    "ROT_REVm1": {
+        "duration": 1,
+        "fps": 10000,
+        "system_center": np.zeros(3),
+        "omega_rot": 100,
+        "omega_rev": -100,
+        "r_rev": 2,
+        "initial_pos": np.pi/2,
+        "x": 0,
+        "Ry": 0,
+        "Rz": 0,
+        "a": 1,
+        "b": 1,
+        "omega_deform": 0,
+        "deformation_mode": "circle",
+        "noise_type": "normal",
+        "noise_max": 1
+    },
+    "ROT_REVm5": {
+        "duration": 1,
+        "fps": 10000,
+        "system_center": np.zeros(3),
+        "omega_rot": 100,
+        "omega_rev": -500,
+        "r_rev": 2,
+        "initial_pos": np.pi/2,
+        "x": 0,
+        "Ry": 0,
+        "Rz": 0,
+        "a": 1,
+        "b": 1,
+        "omega_deform": 0,
+        "deformation_mode": "circle",
+        "noise_type": "normal",
+        "noise_max": 1
+    },
+    "ROT_REVm10": {
+        "duration": 1,
+        "fps": 10000,
+        "system_center": np.zeros(3),
+        "omega_rot": 100,
+        "omega_rev": -1000,
+        "r_rev": 5,
+        "initial_pos": np.pi/2,
+        "x": 0,
+        "Ry": 0,
+        "Rz": 0,
+        "a": 1,
+        "b": 1,
+        "omega_deform": 0,
+        "deformation_mode": "circle",
+        "noise_type": "normal",
+        "noise_max": 1
+    },
+    "ROT_REVm1_ELLIPSEm1": {
+        "duration": 1,
+        "fps": 10000,
+        "system_center": np.zeros(3),
+        "omega_rot": 100,
+        "omega_rev": -100,
+        "r_rev": 2,
+        "initial_pos": np.pi/2,
+        "x": 0,
+        "Ry": 0,
+        "Rz": 0,
+        "a": 1.1,
+        "b": 0.9,
+        "omega_deform": -100,
+        "deformation_mode": "ellipse",
+        "noise_type": "normal",
+        "noise_max": 1
+    },
+    "ROT_REVm5_ELLIPSEm5": {
+        "duration": 1,
+        "fps": 10000,
+        "system_center": np.zeros(3),
+        "omega_rot": 100,
+        "omega_rev": -500,
+        "r_rev": 2,
+        "initial_pos": np.pi/2,
+        "x": 0,
+        "Ry": 0,
+        "Rz": 0,
+        "a": 1.02,
+        "b": 0.98,
+        "omega_deform": -500,
+        "deformation_mode": "ellipse",
+        "noise_type": "normal",
+        "noise_max": 1
+    },
+    "ROT_REVm10_ELLIPSEm10": {
+        "duration": 1,
+        "fps": 10000,
+        "system_center": np.zeros(3),
+        "omega_rot": 100,
+        "omega_rev": -1000,
+        "r_rev": 2,
+        "initial_pos": np.pi/2,
+        "x": 0,
+        "Ry": 0,
+        "Rz": 0,
+        "a": 1.02,
+        "b": 0.98,
+        "omega_deform": -1000,
+        "deformation_mode": "ellipse",
+        "noise_type": "normal",
+        "noise_max": 1
     }
+
 }
 
 @dataclass
@@ -211,6 +320,12 @@ class MotionCode(AutoUpperName):
     ROT_REV_ELLIPSE = enum.auto()
     ROT_REV5_ELLIPSE5 = enum.auto()
     ROT_REV10_ELLIPSE10 = enum.auto()
+    ROT_REVm1 = enum.auto()
+    ROT_REVm5 = enum.auto()
+    ROT_REVm10 = enum.auto()
+    ROT_REVm1_ELLIPSEm1 = enum.auto()
+    ROT_REVm5_ELLIPSEm5 = enum.auto()
+    ROT_REVm10_ELLIPSEm10 = enum.auto()
 
 class TimeParamLoader:
     def __init__(self, time_params=time_params):

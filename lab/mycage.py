@@ -82,7 +82,8 @@ class SimpleCage:
             pockets_global[:, :, 3:6] = pockets_local[:, :, 3:6] + cage[:, np.newaxis, 3:6]
         return pockets_global, pockets_local
 
-    def time_series_data(self, fps=10000, cage_p=np.vstack([np.zeros(10001), 0.4*np.cos(np.linspace(0, 2*np.pi*40, 10001)), 0.4*np.sin(np.linspace(0, 2*np.pi*40, 10001))]).T, cage_R=np.vstack([np.linspace(0, 2*np.pi*40, 10001), np.zeros(10001), np.zeros(10001)]).T,  a=1, b=1, p0_angle=np.pi/2, deform_angle_local=0, noise_type="normal", noise_max=1):
+    def time_series_data(self, sc="", fps=10000, cage_p=np.vstack([np.zeros(10001), 0.4*np.cos(np.linspace(0, 2*np.pi*40, 10001)), 0.4*np.sin(np.linspace(0, 2*np.pi*40, 10001))]).T, cage_R=np.vstack([np.linspace(0, 2*np.pi*40, 10001), np.zeros(10001), np.zeros(10001)]).T,  a=1, b=1, p0_angle=np.pi/2, deform_angle_local=0, noise_type="normal", noise_max=1):
+        self.sc = sc
         self.fps = fps
         self.num_frames = cage_p.shape[0]
         self.duration = (self.num_frames - 1) / self.fps
@@ -119,7 +120,7 @@ class SimpleCage:
         for i in range(self.num_markers):
             self.markers_p_noise[:, i, :] = self.transformerCI.transform_coord(self.markers_p_noise_local[:, i, :], towhich='toglobal')
 
-    def time_series_data2(self, fps=10000, duration=1, omega_rot=40*np.pi, omega_rev=40*np.pi, r_rev=0.4, initial_pos=np.pi/2, a=1, b=1, p0_angle=np.pi/2, omega_deform=0, initial_deform_dir=np.pi/2, noise_type="normal", noise_max=1):
+    def time_series_data2(self, sc="", fps=10000, duration=1, omega_rot=40*np.pi, omega_rev=40*np.pi, r_rev=0.4, initial_pos=np.pi/2, a=1, b=1, p0_angle=np.pi/2, omega_deform=0, initial_deform_dir=np.pi/2, noise_type="normal", noise_max=1):
         num_frames = int(fps * duration) + 1
         t = np.linspace(0, duration , num_frames)
         dt = 1 / fps
@@ -139,13 +140,13 @@ class SimpleCage:
         Rz = np.zeros(num_frames)
         cage_R = np.vstack([Rx, Ry, Rz]).T
         deform_angle_local = omega_deform_local * t
-        self.time_series_data(fps=fps, cage_p=cage_p, cage_R=cage_R, a=a, b=b, p0_angle=p0_angle, deform_angle_local=deform_angle_local, noise_type=noise_type, noise_max=noise_max)
+        self.time_series_data(sc=sc, fps=fps, cage_p=cage_p, cage_R=cage_R, a=a, b=b, p0_angle=p0_angle, deform_angle_local=deform_angle_local, noise_type=noise_type, noise_max=noise_max)
 
     def export_with_TEMAformat(self, outdir=None):
         #### export with visualization test format
         if outdir is None: outdir = config.ROOT / 'data'
         outdir.mkdir(exist_ok=True, parents=True)
-        outfname = f'{self.name}_{int(self.rpm_avg)}rpm_{int(self.fps)}fps'
+        outfname = f'{self.name}_{self.sc}_{int(self.rpm_avg)}rpm_{int(self.fps)}fps'
         header_markers = ['time']
         for i in range(self.num_markers):
             for j in ['y', 'z']:
@@ -176,7 +177,7 @@ class SimpleCage:
         df_zero_data = pl.from_numpy(zero_data, schema=["item", "y", "z", "area"])
         df_markers.write_csv(outdir / f"{outfname}_markers.csv")
         df_markers_noise.write_csv(outdir / f"{outfname}_markers_noise.csv")
-        df_zero_data.write_csv(outdir / f"{outfname}_zero.csv")
+        df_zero_data.write_csv(outdir / f"{self.name}_zero.csv")
 
     def export_time_series_data(self, outdir=None):
         #### export primary data
@@ -234,19 +235,12 @@ if __name__ == '__main__':
     # param = param_loader.param_factory(MotinoCode.ROT_REV5_ELLIPSE5)
     # param = param_loader.param_factory(MotinoCode.ROT_REV10_ELLIPSE10)
 
-    params = [
-        param_loader.param_factory(MotinoCode.ROT_REV),
-        param_loader.param_factory(MotinoCode.ROT_REV_ELLIPSE),
-        param_loader.param_factory(MotinoCode.ROT10_REV),
-        param_loader.param_factory(MotinoCode.ROT_GRAVITY),
-        param_loader.param_factory(MotinoCode.ROT_REV10),
-        param_loader.param_factory(MotinoCode.ROT_REV5_ELLIPSE5),
-        param_loader.param_factory(MotinoCode.ROT_REV10_ELLIPSE10),
-    ]
+    enums = list(time_param_loader.MotionCode)
 
-    for param in params:
-        cage.time_series_data2(fps=param.fps, duration=param.duration, omega_rot=param.omega_rot, omega_rev=param.omega_rev, r_rev=param.r_rev, a=param.a, b=param.b, omega_deform=param.omega_deform, noise_type=param.noise_type, noise_max=param.noise_max, initial_pos=param.initial_pos)
-        outdir = config.ROOT / "sampledata" / f"{cage.name}" / f"{param.name}"
+    for enu in enums:
+        param = param_loader.param_factory(enu)
+        cage.time_series_data2(sc=f"{param.name}", fps=param.fps, duration=param.duration, omega_rot=param.omega_rot, omega_rev=param.omega_rev, r_rev=param.r_rev, a=param.a, b=param.b, omega_deform=param.omega_deform, noise_type=param.noise_type, noise_max=param.noise_max, initial_pos=param.initial_pos)
+        outdir = config.ROOT / "sampledata" / f"{cage.name}"
         print(f"enum: {param.name}")
         cage.export_with_TEMAformat(outdir=outdir)
 

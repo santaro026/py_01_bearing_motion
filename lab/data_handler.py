@@ -183,6 +183,7 @@ class CoordDataLoader:
         self._data_path = data_path
         self._zero_data_path = zero_data_path
         filenameinfo = CoordDataLoader.parse_filename(self._data_path.name)
+        self.code = filenameinfo["code"]
         self._tc = filenameinfo["tc"]
         self._sc = filenameinfo["sc"]
         self._rec = filenameinfo["rec"]
@@ -236,17 +237,20 @@ class CoordDataLoader:
 
     @staticmethod
     def parse_filename(filename):
+        code_match = re.search(r"(.*)_\d+rpm", filename)
         tc_match = re.search(r"tc(\d+)", filename)
         sc_match = re.search(r"sc(\d+)", filename)
         fps_match = re.search(r"(\d+)fps", filename)
         rpm_match = re.search(r"(\d+)rpm", filename)
         rec_match = re.search(r"rec(\d+)", filename)
+        code = str(code_match.group(1)) if code_match else None
         tc = int(tc_match.group(1)) if tc_match else None
         sc = int(sc_match.group(1)) if sc_match else None
         fps = int(fps_match.group(1)) if fps_match else None
         rpm = int(rpm_match.group(1)) if rpm_match else None
         rec = int(rec_match.group(1)) if rec_match else None
         info = {
+            "code": code,
             "tc": tc,
             "sc": sc,
             "rec": rec,
@@ -261,7 +265,7 @@ class CoordDataLoader:
             skip_rows = 3
             skip_columns = 0
             separator = '\t'
-        elif data_format == "sample":
+        elif data_format == "csv":
             skip_rows = 1
             skip_columns = 0
             separator = ','
@@ -295,7 +299,7 @@ class CoordDataLoader:
             ring_area = data[-1, dimension].astype(float) # float
             if cage_markers.shape[1] != num_cage_markers:
                 raise RuntimeError(f"loading data shape does not match: {data_path}")
-        elif data_format == "sample":
+        elif data_format == "csv":
             data = pl.read_csv(data_path, has_header=False, skip_rows=1, separator=',', infer_schema_length=10).cast(pl.Float64, strict=False).to_numpy()[:, 1:]
             cage_markers = data[:-1, :dimension].astype(float)[np.newaxis, :, :]
             ring_center = data[-1, :dimension].astype(float)[np.newaxis, np.newaxis, :]

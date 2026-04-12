@@ -501,7 +501,7 @@ def calc_elliptical_deformation(points, points_ref):
     diameters_ref_norm = np.linalg.norm(diameters_ref_vct, axis=2)
     delta_diameters = diameters_norm - diameters_ref_norm
     roundness = (np.amax(delta_diameters, axis=1) - np.amin(delta_diameters, axis=1)) / 2
-    direction_id = np.array([np.argmin(delta_diameters, axis=1), np.argmax(delta_diameters, axis=1)]).T
+    direction_id = np.array([np.argmax(delta_diameters, axis=1), np.argmin(delta_diameters, axis=1)]).T
     direction = np.array([diameters_theta[np.arange(num_frames), direction_id[:, 0]], diameters_theta[np.arange(num_frames), direction_id[:, 1]]]).T
     deformation_angle = np.abs(direction[:, 1] - direction[:, 0]) % np.pi
     results = {
@@ -514,9 +514,7 @@ def calc_elliptical_deformation(points, points_ref):
     }
     return results
 
-
-
-# def calc_cumulative_angles(angles, threshold=300, unit='deg'):
+def calc_cumulative_angles(angles, threshold=300, unit='deg'):
     full_angle = 360 if unit=='deg' else 2*np.pi
     if np.ndim(angles) == 1:
         d_angles = angles[1:] - angles[:-1]

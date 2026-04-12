@@ -21,16 +21,12 @@ from pathlib import Path
 from datetime import datetime
 
 import config
-import data_handler
-import mycage
-import data_processor
+import data_handler, data_processor, helper
 
 from mymods import myplotter, mylogger, myfitting, mycoord
 
-outdir = config.ROOT / "results" / "test"
-outdir.mkdir(exist_ok=True, parents=True)
-
-def analyze_cage(markers, markers_ref, fps, check=False):
+def analyze_cage(markers, markers_ref, fps, outdir=config.ROOT/"result"/"test", prefix=""):
+# def analyze_cage(markers, markers_ref, fps, outdir):
     """
     calculate cage motion form markers coordinates.
     - cage center, trajectory, rotation speed, probability
@@ -43,7 +39,7 @@ def analyze_cage(markers, markers_ref, fps, check=False):
 
     """
 
-    logger_cage = mylogger.MyLogger("logger_cage", outdir=outdir)
+    logger_cage = mylogger.MyLogger(f"logger_{prefix}_cage", outdir=outdir)
     logger_cage.measure_time("main", mode='s')
     num_frames = markers.shape[0]
     num_markers = markers.shape[1]
@@ -53,10 +49,10 @@ def analyze_cage(markers, markers_ref, fps, check=False):
 
     #### lsm fitting for circle
     logger_cage.measure_time("lsm_fitting_for_circle", mode='s')
-    markers_ref_xyr, markers_ref_lsminfo = myfitting.kasa_circle(markers_ref)
+    markers_ref_xyr, markers_ref_kasainfo = myfitting.kasa_circle(markers_ref[0])
     cage_radius_ref = markers_ref_xyr[2]
-    markers_radii_ref = markers_ref_lsminfo["radii"]
-    logger_cage.binfo(f"#### lsm fitting for markers_ref\nmarkers_ref_xyr: {markers_ref_xyr}\nmarkers_ref_lsminfo: {markers_ref_lsminfo}")
+    # markers_radii_ref = markers_ref_kasainfo["radii"]
+    logger_cage.binfo(f"#### lsm fitting for markers_ref\nmarkers_ref_xyr: {markers_ref_xyr}\nmarkers_ref_kasainfo: {markers_ref_kasainfo}")
 
     markers_xyr = np.zeros((num_frames, 3))
     markers_lsminfo = []
@@ -83,6 +79,12 @@ def analyze_cage(markers, markers_ref, fps, check=False):
 
     #### fitzgibbon fitting for ellipse
     logger_cage.measure_time("fitzgibbon_fitting_for_ellipse", mode='s')
+    markers_ref_xyabtheta, markers_ref_fitzinfo = myfitting.kasa_circle(markers_ref[0])
+    cage_radii_ref = markers_ref_xyabtheta[2:4]
+    # markers_radii_ref = markers_ref_fitzinfo["radii"]
+    markers_ref_ellipse = cage_radii_ref - cage_radius[:, np.newaxis]
+    logger_cage.binfo(f"#### fitzgibbon fitting for markers_ref\nmarkers_ref_xyr: {markers_ref_xyabtheta}\ndeviation from the ideal circle: {markers_ref_ellipse}\nmarkers_ref_fitzinfo: {markers_ref_fitzinfo}")
+
     markers_xyabtheta = np.zeros((num_frames, 5))
     for f in range(num_frames):
         markers_xyabtheta[f], _ = myfitting.fitzgibbon_ellipse(markers[f], allow_nan=False)
@@ -145,43 +147,19 @@ def analyze_cage(markers, markers_ref, fps, check=False):
     logger_cage.binfo(f"average roundness: {np.nanmean(deformation["roundness"])}")
     logger_cage.measure_time("deformation", mode='e')
 
-
-    """
-    rotframeSA: center: system, rotspeed: average
-    rotframeSI: center: system, rotspeed: instantaneous
-    rotframeCA: center: cage, rotspeed: average
-    rotframeCI: center: cage, rotspeed: instantaneous
-
-    """
-    # transfomerSI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=system_center, theta=cage_Rx)
-    # transfomerSA = mycoord.CoordTransformer2d(name="system_average", local_origin=system_center, theta=cage_Rx_avg)
-    # transfomerCI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=cage_kasa, theta=cage_Rx)
-    # transfomerCA = mycoord.CoordTransformer2d(name="cage_average", local_origin=cage_kasa, theta=cage_Rx_avg)
-
     #### output
     logger_cage.measure_time("output", mode='s')
-    header_cage_kasa = [
-        "frame", "time", "cy", "cz", "radius", "Rx"
-    ]
-    header_cage_fitz = [
-        "frame", "time", "cy", "cz", "major", "minor", "theta", "Rx"
-    ]
-    header_markers = ["frame", "time"]
-    for i in range(num_markers):
-        header_markers.append(f"p{i}y")
-        header_markers.append(f"p{i}z")
+    headers = helper.get_headers(num_markers=num_markers)
+    header_cage_kasa = headers["cage_kasa"]
+    header_cage_fitz = headers["cage_fitz"]
+    header_markers = headers["markers"]
     cage_kasa_arr = np.column_stack([
-        frame,
-        t,
         cage_kasa,
         cage_radius,
         rotkinematics_kasa["cage_Rx"],
     ])
     cage_kasa_df = pl.DataFrame(cage_kasa_arr, schema=header_cage_kasa)
-    print(cage_kasa_df)
     cage_fitz_arr = np.column_stack([
-        frame,
-        t,
         cage_fitz,
         cage_fitz_major,
         cage_fitz_minor,
@@ -190,20 +168,20 @@ def analyze_cage(markers, markers_ref, fps, check=False):
     ])
     cage_fitz_df = pl.DataFrame(cage_fitz_arr, schema=header_cage_fitz)
 
-    print(f"markers: {markers.shape}")
-    print(f"markers_radii: {markers_radii.shape}")
     markers_arr = np.column_stack([
-        frame,
-        t,
         markers.reshape(num_frames, -1),
     ])
+    markers_ref_arr = markers_ref.reshape(1, -1)
     markers_df = pl.DataFrame(markers_arr, schema=header_markers)
-    cage_kasa_df.write_csv(outdir / "cage_kasa.csv")
-    cage_fitz_df.write_csv(outdir / "cage_fitz.csv")
-    markers_df.write_csv(outdir / "markers.csv")
+    markers_ref_df = pl.DataFrame(markers_ref_arr, schema=header_markers)
+
+    cage_kasa_df.write_csv(outdir / f"{prefix}_cage_kasa.csv")
+    cage_fitz_df.write_csv(outdir / f"{prefix}_cage_fitz.csv")
+    markers_df.write_csv(outdir / f"{prefix}_markers.csv")
+    markers_ref_df.write_csv(outdir / f"{prefix}_markers_ref.csv")
+
     logger_cage.binfo(f"average roundness: {np.nanmean(deformation["roundness"])}")
     logger_cage.measure_time("output", mode='e')
-
 
     logger_cage.measure_time("main", mode='e')
 
@@ -213,57 +191,7 @@ def analyze_cage(markers, markers_ref, fps, check=False):
         print(f"same: {same}")
         diff = a - b
         print(f"max difference: {np.max(diff, axis=0)}")
-
     # compare_2array(cage_kasa, cage_fitz, name="kasa and fitz")
-
-    #### check
-    check = 0
-    if check:
-        data_list = [
-
-            {"id": 0, "data": cage_kasa[:, 0], "color": 'r', "lw": 1},
-            {"id": 0, "data": cage_kasa[:, 1], "color": 'b', "lw": 1},
-            {"id": 0, "data": cage_fitz[:, 0], "color": 'm', "ls": "--", "lw": 2, "alpha": 0.8},
-            {"id": 0, "data": cage_fitz[:, 1], "color": 'c', "ls": "--", "lw": 2, "alpha": 0.8},
-
-            {"id": 1, "data": cage_kasa_polar[:, 0], "color": 'r', "lw": 1},
-            {"id": 1, "data": cage_kasa_polar[:, 1], "color": 'b', "lw": 1},
-            {"id": 1, "data": cage_fitz_polar[:, 0], "color": 'm', "ls": "--", "lw": 2, "alpha": 0.8},
-            {"id": 1, "data": cage_fitz_polar[:, 1], "color": 'c', "ls": "--", "lw": 2, "lapha": 0.8},
-
-            # {"id": 2, "data": revolution_speed, "color": 'r'},
-            # {"id": 2, "data": revolution_speed2, "color": 'b'},
-
-            # {"id": 2, "data": np.degrees(deformation["deformation_angle"]), "color": 'k', "lw": 1, "alpha": 0.4, "scatter": True},
-            # {"id": 2, "data": deformation["roundness"], "color": 'r', "lw": 1, "alpha": 0.4, "scatter": True},
-            # {"id": 2, "data": cage_fitz_major, "color": 'r', "lw": 1, "alpha": 0.4, "scatter": True},
-            # {"id": 2, "data": cage_fitz_minor, "color": 'b', "lw": 1, "alpha": 0.4, "scatter": True},
-            # {"id": 2, "data": np.degrees(cage_fitz_theta), "color": 'g', "lw": 1, "alpha": 0.4, "scatter": True},
-
-            {"id": 2, "data": rotkinematics_kasa["cage_Rx"], "color": 'r', "lw": 1, "alpha": 1, "scatter": True},
-            {"id": 2, "data": rotkinematics_fitz["cage_Rx"], "color": 'b', "lw": 1, "alpha": 1, "scater": True, "ls": "--"},
-
-
-        ]
-        fig, axs = plt.subplots(3, 1, figsize=(20, 12), sharex=True)
-        for _d in data_list:
-            idx = _d.get("id")
-            data = _d.get("data")
-            color = _d.get("color", 'k')
-            lw = _d.get("lw", 1)
-            alpha = _d.get("alpha", 1)
-            ls = _d.get("ls", '-')
-            scatter = _d.get("scatter", False)
-            if not scatter:
-                axs[idx].plot(t, data, lw=lw, ls=ls, color=color, alpha=alpha)
-            elif scatter:
-                axs[idx].scatter(t, data, s=lw, color=color, alpha=alpha)
-
-        for i in range(3):
-            axs[i].axhline(y=0, c='k', lw=0.4)
-        # axs[1].set_ylim(0, 100)
-        # axs[2].set_ylim(-1, 1)
-        plt.show()
 
 def analyze_sound(sound, fs):
     logger_sound = mylogger.MyLogger("logger_sound", outdir=outdir)
@@ -308,6 +236,10 @@ def analyze_sound(sound, fs):
 
 if __name__ == '__main__':
     print("---- test ----")
+
+    # outdir = config.ROOT / "results" / "test"
+    # outdir.mkdir(exist_ok=True, parents=True)
+
     #### sample data
 
     datamappath = Path(r"D:/1005_tyn/02_experiments_and_analyses/list_visualization_test.xlsx")
@@ -333,8 +265,29 @@ if __name__ == '__main__':
     coorddl = data_handler.CoordDataLoader(markers, zero, data_format="sample")
     print(repr(coorddl))
 
-    analyze_cage(coorddl.cage_markers, coorddl.cage_markers_zero.squeeze(), fps=coorddl.fps, check=False)
+    # analyze_cage(coorddl.cage_markers, coorddl.cage_markers_zero, fps=coorddl.fps)
+    fps = 10000
+    num_frames = 10001
+    pixel2mm = 1
+    system_center = list(np.zeros(2))
+    num_cage_markers = 8
+    num_ring_markers = 1
+    num_markers = 9
+    info = {
+        "fps": fps,
+        "num_frames": num_frames,
+        "duration": num_frames / fps,
+        "pixel2mm": pixel2mm,
+        "system_center": system_center,
+        "num_cage_markers": num_cage_markers,
+        "num_ring_markers": num_ring_markers,
+        "num_markers": num_markers,
+    }
+    import json
+    with open(outdir/"camera_info.json", "w") as f:
+        json.dump(info, f)
 
+    print("complete")
 
 
 
