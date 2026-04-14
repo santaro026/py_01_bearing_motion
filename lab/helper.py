@@ -10,14 +10,26 @@ import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
 
-from pathlib import Path
-
-import numpy as np
-import polars as pl
-import matplotlib.pyplot as plt
-
 import re
 from pathlib import Path
+
+
+def merge_dicts(*args, check_consistency=True):
+    d = {}
+    for k, v in args[0].items():
+        d[k] = v
+    for _arg in args[1:]:
+        for k, v in _arg.items():
+            if k in d.keys() and d[k] != v:
+                if check_consistency:
+                    raise ValueError(
+                        f"[WARNING]: duplicated key {k} was found with different values:\n"
+                        f"{d[k]} and {v}"
+                        )
+            else:
+                d[k] = v
+    return d
+
 
 
 def get_headers(num_markers=8):
