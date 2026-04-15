@@ -32,11 +32,9 @@ def make_input_list(datadir, outdir, filepattern=r"tc*.txt"):
             markerfiles.append(f)
     print(f"zero files: {zerofiles}")
     print(f"target files: {len(markerfiles)}\n{'\n'.join(map(str, markerfiles))}")
-    # zero = pl.read_csv(zerofiles[0], has_header=True, infer_schema_length=True).cast(pl.Float64, strict=False).to_numpy()[:8, 1:3]
-    # print(f"zero: {zero.shape}")
     inputlist = []
     for mf in markerfiles:
-        # markers = pl.read_csv(mf, has_header=True, infer_schema_length=True).cast(pl.Float64).to_numpy()[:, 1:]
+        # dl = data_handler.CoordDataLoader(mf, zerofiles[0], data_format="tema")
         dl = data_handler.CoordDataLoader(mf, zerofiles[0], data_format="csv")
         inputlist.append([dl.cage_markers, dl.cage_markers_zero, dl.fps, outdir, dl.code])
         # print(f"{dl.cage_markers.shape}, {dl.cage_markers_zero.shape}, {dl.fps}")
@@ -67,6 +65,8 @@ if __name__ == "__main__":
     logger_parallel = mylogger.MyLogger("logger_parallel", outdir=outdir)
     logger_parallel.measure_time("main", mode='s')
 
+    # datadir = config.ROOT / "sampledata" / "SIMPLE50"
+    # inputlist = make_input_list(datadir, outdir=outdir, filepattern=r"*.csv")
 
     # datadir = Path(r"N:\1005_tyn\tema\tc01_240610_40BNR10TYN_PA46GF25")
     datadir = Path(config.ROOT/"sampledata"/"SIMPLE50")
