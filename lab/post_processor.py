@@ -11,6 +11,7 @@ import polars as pl
 import matplotlib.pyplot as plt
 from pathlib import Path
 import re
+import pickle
 import json
 from dataclasses import dataclass
 
@@ -19,20 +20,47 @@ from mymods import mycoord, myfitting, myplotter
 import config
 import plot_drawer
 
-"""
-rotframeSA: center: system, rotspeed: average
-rotframeSI: center: system, rotspeed: instantaneous
-rotframeCA: center: cage, rotspeed: average
-rotframeCI: center: cage, rotspeed: instantaneous
+def load_data(datapath):
+    with open(datapath, "rb") as f:
+        data = pickle.load(f)
 
-"""
-# transfomerSI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=system_center, theta=cage_Rx)
-# transfomerSA = mycoord.CoordTransformer2d(name="system_average", local_origin=system_center, theta=cage_Rx_avg)
-# transfomerCI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=cage_kasa, theta=cage_Rx)
-# transfomerCA = mycoord.CoordTransformer2d(name="cage_average", local_origin=cage_kasa, theta=cage_Rx_avg)
+    dtype_map = {
+        "marker": [("coord", np.float64, (2,))],
+        "kasa": [("coord", np.float64, (2,)), ("length", np.float64)],
+        "fitz": [("coord", np.float64, (2,)), ("length", np.float64, (2,)), ("angle", np.float64)],
+    }
+
+    #### markers
+    print(f"data[markers]: {data["markers"].shape}")
+    data["markers"] = np.ascontiguousarray(data["markers"]).view(dtype_map["marker"], np.recarray)
+    #### markers_ref
+    print(f"data[markers_ref]: {data["markers_ref"].shape}")
+    data["markers_ref"] = np.ascontiguousarray(data["markers_ref"]).view(dtype_map["marker"], np.recarray)
+    #### markers_fit
+    print(f"data[markers_fit][kasa]: {data["markers_fit"]["kasa"].shape}")
+    print(f"data[markers_fit][fitz]: {data["markers_fit"]["fitz"].shape}")
+    data["markers_fit"]["kasa"] = np.ascontiguousarray(data["markers_fit"]["kasa"]).view(dtype_map["kasa"], np.recarray)
+    data["markers_fit"]["fitz"] = np.ascontiguousarray(data["markers_fit"]["fitz"]).view(dtype_map["fitz"], np.recarray)
+    #### trajectory_prop
+    print(f"data[trajectory_prop][kasatrj_kasa]: {data["trajectory_prop"]["kasatrj_kasa"].shape}")
+    print(f"data[trajectory_prop][fitztrj_kasa]: {data["trajectory_prop"]["fitztrj_kasa"].shape}")
+    print(f"data[trajectory_prop][kasatrj_avg]: {data["trajectory_prop"]["kasatrj_avg"].shape}")
+    print(f"data[trajectory_prop][kasatrj_avg]: {data["trajectory_prop"]["kasatrj_avg"]}")
+    print(f"data[trajectory_prop][fitztrj_avg]: {data["trajectory_prop"]["fitztrj_avg"].shape}")
+    data["trajectory_prop"]["kasatrj_kasa"] = np.ascontiguousarray(data["trajectory_prop"]["kasatrj_kasa"]).view(dtype_map["kasa"], np.recarray)
+    data["trajectory_prop"]["fitztrj_kasa"] = np.ascontiguousarray(data["trajectory_prop"]["fitztrj_kasa"]).view(dtype_map["kasa"], np.recarray)
+    # data["trajectory_prop"]["kasatrj_avg"] = np.ascontiguousarray(data["trajectory_prop"]["kasatrj_avg"]).view(dtype_map["marker"], np.recarray)
+    #### deformation
+    print(f"data[deformation][markers]: {data["deformation"]["deforomation_markers"].shape}")
+    # data["deformation"]["markers"] = np.ascontiguousarray(data["deformation"]["markers"]).view(dtype_map["marker"], np.recarray)
+    # data["deformation"]["centrifugal_expansion_kasa"] = np.ascontiguousarray(data["deformation"]["centrifugal_expansion_kasa"]).view(("length", np.float64), np.recarray)
+    # data["deformation"]["roundness_fitz"] = np.ascontiguousarray(data["deformation"]["roundness_fitz"]).view(("length", np.float64), np.recarray)
 
 
-datadir = config.ROOT / "results" / "test"
+
+
+
+    return data
 
 @dataclass
 class Transformer:
@@ -41,205 +69,100 @@ class Transformer:
     CI: mycoord.CoordTransformer2d
     CA: mycoord.CoordTransformer2d
 
-@dataclass
-class MainResult:
-    fps: float
-    num_frames: int
-    duration: float
-    pixel2mm: float
-    system_center: float
-    num_cage_markers: float
-    num_ring_markers: float
-    num_markers: float
-    t: np.ndarray
-    cage_kasa: np.ndarray
-    cage_kasa_radius: np.ndarray
-    cage_kasa_Rx: np.ndarray
-    cage_fitz: np.ndarray
-    cage_fitz_radii: np.ndarray
-    cage_fitz_theta: np.ndarray
-    cage_fitz_Rx: np.ndarray
-    markers: np.ndarray
-    markers_ref: np.ndarray
+def pixel2mm_coord(coord, center, pixel2mm):
+    """
+    coord: (N, N, 2)
+    center: (2) -> (N, N, 2)
 
-    def __repr__(self):
-        return (
-            f"\nResult list\n"
-            f"fps: {self.fps}\n"
-            f"num_frames: {self.num_frames}\n"
-            f"duration: {self.duration}\n"
-            f"pixel2mm: {self.pixel2mm}\n"
-            f"system_center: {self.system_center}\n"
-            f"t: {self.t.shape}\n"
-
-            f"cage_kasa: {self.cage_kasa.shape}\n"
-            f"cage_kasa_radius: {self.cage_kasa_radius.shape}\n"
-            f"cage_kasa_Rx: {self.cage_kasa_Rx.shape}\n"
-
-            f"cage_fitz: {self.cage_fitz.shape}\n"
-            f"cage_fitz_radii: {self.cage_fitz_radii.shape}\n"
-            f"cage_fitz_theta: {self.cage_fitz_theta.shape}\n"
-            f"cage_fitz_Rx: {self.cage_fitz_Rx.shape}\n"
-
-            f"markers: {self.markers.shape}\n"
-            f"markers_ref: {self.markers_ref.shape}\n"
-        )
-
-def read_results(datadir):
-    with open(datadir / "camera_info.json", 'r') as f:
-        camera_info = json.load(f)
-    df_cage_kasa = pl.read_csv(datadir / "cage_kasa.csv", has_header=True, infer_schema_length=5000)
-    df_cage_fitz = pl.read_csv(datadir / "cage_fitz.csv", has_header=True, infer_schema_length=5000)
-    df_markers = pl.read_csv(datadir / "markers.csv", has_header=True, infer_schema_length=5000)
-    df_markers_ref = pl.read_csv(datadir / "markers_ref.csv", has_header=True)
-    #### check the consistency
-    if len(df_cage_kasa) != camera_info["num_frames"]:
-        raise ValueError(f"num_frames of camera_info ({camera_info["num_frames"]}) doesnt match df_cage_kasa ({len(df_cage_kasa)})")
-    if df_markers_ref.shape[-1] / 2 != camera_info["num_cage_markers"]:
-        raise ValueError(f"num_cage_markers of camera_info ({camera_info["num_cage_markers"]}) doesnt match df_cage_kasa ({df_markers_ref.shape[-1]/2})")
-
-    mainresult = MainResult(
-        fps = camera_info["fps"],
-        num_frames = camera_info["num_frames"],
-        duration = camera_info["num_frames"]/camera_info["fps"],
-        pixel2mm = camera_info["pixel2mm"],
-        system_center = camera_info["system_center"],
-        num_cage_markers = camera_info["num_cage_markers"],
-        num_ring_markers = camera_info["num_ring_markers"],
-        num_markers = camera_info["num_markers"],
-        t = np.arange(camera_info["num_frames"]) / camera_info["fps"],
-        cage_kasa = df_cage_kasa.select(pl.col("cy", "cz")).to_numpy()[:, np.newaxis, :],
-        cage_kasa_radius = df_cage_kasa.select(pl.col("radius")).to_numpy().squeeze(),
-        cage_kasa_Rx = df_cage_kasa.select(pl.col("Rx")).to_numpy().squeeze(),
-        cage_fitz = df_cage_fitz.select(pl.col("cy", "cz")).to_numpy()[:, np.newaxis, :],
-        cage_fitz_radii = df_cage_fitz.select(pl.col("major", "minor")).to_numpy(),
-        cage_fitz_theta = df_cage_fitz.select(pl.col("theta")).to_numpy().squeeze(),
-        cage_fitz_Rx = df_cage_fitz.select(pl.col("Rx")).to_numpy().squeeze(),
-        markers = df_markers.to_numpy().reshape(camera_info["num_frames"], -1, 2),
-        markers_ref = df_markers_ref.to_numpy().reshape(-1, 2)[np.newaxis, :, :]
-    )
-
-    transformer_kasa = Transformer(
-        SI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=np.zeros(2), theta=mainresult.cage_kasa_Rx),
-        SA = mycoord.CoordTransformer2d(name="system_average", local_origin=np.zeros(2), theta=np.nanmean(mainresult.cage_kasa_Rx)),
-        CI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=mainresult.cage_kasa, theta=mainresult.cage_kasa_Rx),
-        CA = mycoord.CoordTransformer2d(name="cage_average", local_origin=mainresult.cage_kasa, theta=np.nanmean(mainresult.cage_kasa_Rx))
-    )
-    transformer_fitz = Transformer(
-        SI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=np.zeros(2), theta=mainresult.cage_fitz_Rx),
-        SA = mycoord.CoordTransformer2d(name="system_average", local_origin=np.zeros(2), theta=np.nanmean(mainresult.cage_fitz_Rx)),
-        CI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=mainresult.cage_fitz, theta=mainresult.cage_fitz_Rx),
-        CA = mycoord.CoordTransformer2d(name="cage_average", local_origin=mainresult.cage_fitz, theta=np.nanmean(mainresult.cage_fitz_Rx))
-    )
-
-    results = {
-        "main": mainresult,
-        "transformer_kasa": transformer_kasa,
-        "transformer_fitz": transformer_fitz,
-    }
-
-    return results
-
-def calc_deformation(result):
-    #### calculate deformation
-    deformation_markers = myfitting.calc_elliptical_deformation(result.markers, result.markers_ref)
-    deformation_fitz = {
-        "roundness": result.cage_fitz_radii[:, 0] - result.cage_fitz_radii[:, 1],
-        "delta_diameters": result.cage_fitz_radii - result.cage_kasa_radius[:, np.newaxis],
-        "direction": np.column_stack([result.cage_fitz_theta, result.cage_fitz_theta + np.pi/2])
-    }
-    res = {
-        "deformation_markers": deformation_markers,
-        "deformation_fitz": deformation_fitz
-    }
-    return res
-
-def transform_coord():
-    pass
-
-def pixel2mm_coord(coord, system_center, pixel2mm):
-    system_center = np.asarray(system_center)[np.newaxis, :]
-    arr_shift = coord - system_center
+    """
+    center = np.asarray(center)[np.newaxis, np.newaxis, :]
+    arr_shift = coord - center
     arr_converted = pixel2mm * arr_shift
     return arr_converted
 def pixel2mm_length(value, pixel2mm):
     return pixel2mm * value
 
-
-
-
-def get_plotter(results):
-    mainresult = results["main"]
-    transformer_kasa = results["transformer_kasa"]
-    transformer_fitz = results["transformer_fitz"]
-
-
-    import json
-
-    # testinfo = {
-    #     "dp_measured": 0.5,
-    #     "dl_measured": 0.5,
-    #     "dp_drawing": 0.5,
-    #     "dl_drawing": 0.5,
-    # }
-    with open(datadir/"testinfo.json", "r") as f:
-        testinfo = json.load(f)
-    print(testinfo)
-
-    # plotter = plot_drawer.PlotterForCageVisualization_old(
-    #     t_camera=mainresult.t,
-    #     cage=mainresult.cage_kasa,
-    #     markers=mainresult.markers,
-    #     rotspeed=mainresult.cage_kasa_Rx,
-    #     testinfo=testinfo
-    #     )
-
+def get_plotter():
+    testinfo = {
+        "dp_measured": 0.5,
+        "dl_measured": 0.5,
+        "dp_drawing": 0.5,
+        "dl_drawing": 0.5,
+    }
+    # with open(datadir/"testinfo.json", "r") as f:
+        # testinfo = json.load(f)
+    # print(testinfo)
     plotter = plot_drawer.PlotterForCageVisualization(testinfo)
     return plotter
+
+to_convert_list = [
+    "markers", "markers_ref", "markers_fit", "markers_ref_fit", "trajectory_prop", "deformation"
+]
+
+def convert_units(data, to_convert_list=to_convert_list):
+    converted = {}
+    converted["markers"] = pixel2mm_coord(data["markers"])
+    converted["markers_ref"] = pixel2mm_coord(data["markers_ref"])
+    converted["markers_fit"] = pixel2mm_coord(data["markers_fit"])
+
+
+
+def main(datapath):
+    data = load_data(datapath)
+    print(data.keys())
+    # transformer_kasa = Transformer(
+    #     SI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=np.zeros(2), theta=data["rotkinematics_kasa"]["cage_Rx"]),
+    #     SA = mycoord.CoordTransformer2d(name="system_average", local_origin=np.zeros(2), theta=data["rotkinematics_kasa"]["cage_Rx_const"]),
+    #     CI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=data["markers_fit"]["kasa"], theta=data["rotkinematics_kasa"]["cage_Rx"]),
+    #     CA = mycoord.CoordTransformer2d(name="cage_average", local_origin=data["markers_fit"]["kasa"], theta=data["rotkinematics_kasa"]["cage_Rx"])
+    # )
+    # transformer_fitz = Transformer(
+    #     SI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=np.zeros(2), theta=data["rotkinematics_fitz"]["cage_Rx"]),
+    #     SA = mycoord.CoordTransformer2d(name="system_average", local_origin=np.zeros(2), theta=data["rotkinematics_fitz"]["cage_Rx_const"]),
+    #     CI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=data["markers_fit"]["fitz"], theta=data["rotkinematics_fitz"]["cage_Rx"]),
+    #     CA = mycoord.CoordTransformer2d(name="cage_average", local_origin=data["markers_fit"]["fitz"], theta=data["rotkinematics_fitz"]["cage_Rx_const"])
+    # )
+    # plotter = get_plotter()
+
+    # markers_fit = data["markers_fit"]
+
+    # plotlist = [
+    #     {"axid": 0, "data": markers_fit["kasa"], "lw": 2, "color": 'k', "alpha": 0.5, "zorder": 2, "ls": '-'},
+    #     {"axid": 0, "data": markers_fit["fitz"], "lw": 1, "color": 'g', "alpha": 0.5, "zorder": 1, "ls": '-'},
+    # ]
+
+    # plotter.trajectory(plotlist, frange=[0, 500], xyrange=3.2)
+
+    # plt.show()
+
+
+
+
+    return 0
 
 
 if __name__ == '__main__':
     print('----- main -----\n')
-    # see_headers()
 
-    results = read_results(datadir)
-    print(repr(results))
-    mainresult = results["main"]
-    transformer_kasa = results["transformer_kasa"]
-    transformer_fitz = results["transformer_fitz"]
-
-    # res_deform = calc_deformation(mainresult)
-    # deform = res_deform["deformation_markers"]
-    # deform_fitz = res_deform["deformation_fitz"]
+    code = "ROT_REV"
+    datadir = config.ROOT / "results" / "test" / "tmp"
+    # datadir = config.ROOT / "results" / "test_noise" / "tmp"
+    datapath = list(datadir.glob(f"*{code}_data.pkl"))[0]
+    print(f"datapath: {datapath}")
+    main(datapath)
 
 
-    plotter = get_plotter(results)
+
+    # plotter = get_plotter()
     # fig, axs, log = plotter.trajectory(xyrange=(-10, 10))
     # fig, axs, log = plotter.cagecoord_sound(yrange=[(-10, 10), (-10, 10), (0, 24)])
     # fig, axs, log = plotter.cagecoord(yrange=[(-10, 10), (-10, 10)])
     # fig, axs, log = plotter.spectrogram()
 
-    fig, axs = plotter.trajectory(mainresult.cage_kasa[:, :, 0], mainresult.cage_kasa[:, :, 1], xyrange=10)
-
-    plt.show()
-
-
-
-
-    # plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.LANDSCAPE_FIG_31)
-    # fig, axs = plotter.myfig()
-
-    # axs[0].plot(mainresult.t, deform["roundness"], lw=1)
-    # axs[0].plot(mainresult.t, deform["diameters_norm"][:, 0]/2, lw=1)
-    # axs[0].plot(mainresult.t, deform_fitz["roundness"], lw=1)
-    # axs[0].set(ylim=(-10, 30))
-
-
-    # axs[1].plot(mainresult.t, deform_fitz["direction"][:, 0], lw=1, label="fitz")
-    # axs[1].plot(mainresult.t, deform["direction"][:, 0], lw=1, label="node")
-    # axs[1].plot(mainresult.t, deform["direction"][:, 1], lw=1, label="node")
-    # axs[1].legend()
+    # fig, axs = plotter.trajectory(, xyrange=10)
 
     # plt.show()
+
+
 
 

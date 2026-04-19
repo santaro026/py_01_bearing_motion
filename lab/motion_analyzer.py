@@ -60,13 +60,13 @@ def perform_cage_fitting(markers):
 
 def analyze_trajectory(fit):
     kasatrj_kasa, kasatrj_kasainfo = myfitting.kasa_circle(fit["kasa"][:, :2])
-    kasatrj_avg = np.nanmean(fit["kasa"][:, :2])
+    kasatrj_avg = np.nanmean(fit["kasa"][:, :2], axis=-1)
     fitztrj_kasa, fitztrj_kasainfo = myfitting.kasa_circle(fit["fitz"][:, :2])
-    fitztrj_avg = np.nanmean(fit["fitz"][:, :2])
+    fitztrj_avg = np.nanmean(fit["fitz"][:, :2], axis=-1)
     results = {
         "kasatrj_kasa": kasatrj_kasa,
         "kasatrj_kasainfo": kasatrj_kasainfo,
-        "kasarrj_avg": kasatrj_avg,
+        "kasatrj_avg": kasatrj_avg,
         "fitztrj_kasa": fitztrj_kasa,
         "fitztrj_kasinfo": fitztrj_kasainfo,
         "fitztrj_avg": fitztrj_avg,
@@ -113,12 +113,12 @@ def calc_deformation(markers, markers_ref, fitting, fitting_ref):
 def analyze_cage(markers, markers_ref, fps, outdir=config.ROOT/"results"/"test", prefix=""):
     loggaer_cage_fitting = mylogger.MyLogger(f"{prefix}_analyze_cage", outdir=outdir)
     loggaer_cage_fitting.measure_time("main", mode='s')
-    markers_fit = perform_cage_fitting(markers)
-    markers_ref_fit = perform_cage_fitting(markers_ref)
-    trajectory_prop = analyze_trajectory(markers_fit)
-    rotkinematics_kasa = calc_rotational_kinematics(markers, markers_fit["kasa"], fps)
-    rotkinematics_fitz = calc_rotational_kinematics(markers, markers_fit["fitz"], fps)
-    deformation = calc_deformation(markers, markers_ref, markers_fit, markers_ref_fit)
+    markers_fit = perform_cage_fitting(markers) # to convert
+    markers_ref_fit = perform_cage_fitting(markers_ref) # to convert
+    trajectory_prop = analyze_trajectory(markers_fit) # to convert
+    rotkinematics_kasa = calc_rotational_kinematics(markers, markers_fit["kasa"], fps) # not to convert
+    rotkinematics_fitz = calc_rotational_kinematics(markers, markers_fit["fitz"], fps) # not to convert
+    deformation = calc_deformation(markers, markers_ref, markers_fit, markers_ref_fit) # to convert
     #### output
     tmpdir = outdir / "tmp"
     tmpdir.mkdir(exist_ok=True, parents=True)
