@@ -45,18 +45,22 @@ def make_input_list(datadir, outdir, filepattern=r"tc*.txt"):
 def make_input_list2(datadir, outdir, filepattern=r"tc*.txt"):
     temafiles = datadir.rglob(filepattern)
     markerfiles = []
+    markerfiles_noise = []
     zerofiles = []
     for f in temafiles:
         if "zero" in f.name:
             zerofiles.append(f)
         elif "noise" in f.name:
-            # markerfiles.append(f)
-            pass
+            markerfiles_noise.append(f)
         else:
             markerfiles.append(f)
-            pass
     inputlist = []
-    for mf in markerfiles:
+    noise = 0
+    if noise:
+        _files = markerfiles_noise
+    elif not noise:
+        _files = markerfiles
+    for mf in _files:
         # dl = data_handler.CoordDataLoader(mf, zerofiles[0], data_format="tema")
         dl = data_handler.CoordDataLoader(mf, zerofiles[0], data_format="csv")
         inputlist.append([dl.cage_markers, dl.cage_markers_zero, dl.fps, outdir, dl.code])

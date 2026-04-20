@@ -20,42 +20,38 @@ from mymods import mycoord, myfitting, myplotter
 import config
 import plot_drawer
 
-def load_data(datapath):
+def convert_unit(data, scale, shift):
+    if isinstance(data, dict):
+        return {k: convert_unit(v, scale, shift) for k, v in data.items()}
+    elif isinstance(data, np.ndarray):
+        names = data.dtype.names
+        if names is None:
+            return data
+        new_data = data.copy()
+        for c, name in enumerate(names):
+            if "coord_y" in name:
+                new_data[name] = (new_data[name] - shift[0]) * scale
+            elif "coord_z" in name:
+                new_data[name] = (new_data[name] - shift[1]) * scale
+            elif "length" in name:
+                new_data[name] = new_data[name] * scale
+        return new_data
+    else:
+        raise ValueError(f"dtype was not found.")
+
+def reset_view2float64(data):
+    if isinstance(data, dict):
+        for k, v in data.items():
+            data[k] = reset_view2float64(v)
+    elif isinstance(data, np.ndarray):
+        return data.view(np.float64)
+    return data
+
+def load_data(datapath, scale, shift):
     with open(datapath, "rb") as f:
         data = pickle.load(f)
 
-    dtype_map = {
-        "marker": [("coord", np.float64, (2,))],
-        "kasa": [("coord", np.float64, (2,)), ("length", np.float64)],
-        "fitz": [("coord", np.float64, (2,)), ("length", np.float64, (2,)), ("angle", np.float64)],
-    }
-
-    #### markers
-    print(f"data[markers]: {data["markers"].shape}")
-    data["markers"] = np.ascontiguousarray(data["markers"]).view(dtype_map["marker"], np.recarray)
-    #### markers_ref
-    print(f"data[markers_ref]: {data["markers_ref"].shape}")
-    data["markers_ref"] = np.ascontiguousarray(data["markers_ref"]).view(dtype_map["marker"], np.recarray)
-    #### markers_fit
-    print(f"data[markers_fit][kasa]: {data["markers_fit"]["kasa"].shape}")
-    print(f"data[markers_fit][fitz]: {data["markers_fit"]["fitz"].shape}")
-    data["markers_fit"]["kasa"] = np.ascontiguousarray(data["markers_fit"]["kasa"]).view(dtype_map["kasa"], np.recarray)
-    data["markers_fit"]["fitz"] = np.ascontiguousarray(data["markers_fit"]["fitz"]).view(dtype_map["fitz"], np.recarray)
-    #### trajectory_prop
-    print(f"data[trajectory_prop][kasatrj_kasa]: {data["trajectory_prop"]["kasatrj_kasa"].shape}")
-    print(f"data[trajectory_prop][fitztrj_kasa]: {data["trajectory_prop"]["fitztrj_kasa"].shape}")
-    print(f"data[trajectory_prop][kasatrj_avg]: {data["trajectory_prop"]["kasatrj_avg"].shape}")
-    print(f"data[trajectory_prop][kasatrj_avg]: {data["trajectory_prop"]["kasatrj_avg"]}")
-    print(f"data[trajectory_prop][fitztrj_avg]: {data["trajectory_prop"]["fitztrj_avg"].shape}")
-    data["trajectory_prop"]["kasatrj_kasa"] = np.ascontiguousarray(data["trajectory_prop"]["kasatrj_kasa"]).view(dtype_map["kasa"], np.recarray)
-    data["trajectory_prop"]["fitztrj_kasa"] = np.ascontiguousarray(data["trajectory_prop"]["fitztrj_kasa"]).view(dtype_map["kasa"], np.recarray)
-    # data["trajectory_prop"]["kasatrj_avg"] = np.ascontiguousarray(data["trajectory_prop"]["kasatrj_avg"]).view(dtype_map["marker"], np.recarray)
-    #### deformation
-    print(f"data[deformation][markers]: {data["deformation"]["deforomation_markers"].shape}")
-    # data["deformation"]["markers"] = np.ascontiguousarray(data["deformation"]["markers"]).view(dtype_map["marker"], np.recarray)
-    # data["deformation"]["centrifugal_expansion_kasa"] = np.ascontiguousarray(data["deformation"]["centrifugal_expansion_kasa"]).view(("length", np.float64), np.recarray)
-    # data["deformation"]["roundness_fitz"] = np.ascontiguousarray(data["deformation"]["roundness_fitz"]).view(("length", np.float64), np.recarray)
-
+    data = convert_unit(data, scale, shift)
 
 
 
