@@ -22,7 +22,14 @@ import plot_drawer
 
 def convert_unit(data, scale, shift):
     if isinstance(data, dict):
-        return {k: convert_unit(v, scale, shift) for k, v in data.items()}
+        _d = {}
+        for k, v in data.items():
+            if not "info" in k:
+                _d[k] = convert_unit(v, scale, shift)
+            else:
+                _d[k] = v
+        return _d
+        # return {k: convert_unit(v, scale, shift) for k, v in data.items()}
     elif isinstance(data, np.ndarray):
         names = data.dtype.names
         if names is None:
@@ -37,7 +44,9 @@ def convert_unit(data, scale, shift):
                 new_data[name] = new_data[name] * scale
         return new_data
     else:
-        raise ValueError(f"dtype was not found.")
+        # raise ValueError(f"dtype was not found, data type: {type(data)}")
+        print(f"[WARN]: fail to convert data, data type: {type(data)}")
+        return data
 
 def reset_view2float64(data):
     if isinstance(data, dict):
@@ -50,12 +59,8 @@ def reset_view2float64(data):
 def load_data(datapath, scale, shift):
     with open(datapath, "rb") as f:
         data = pickle.load(f)
-
     data = convert_unit(data, scale, shift)
-
-
-
-
+    data = reset_view2float64(data)
     return data
 
 @dataclass
@@ -91,48 +96,31 @@ def get_plotter():
     plotter = plot_drawer.PlotterForCageVisualization(testinfo)
     return plotter
 
-to_convert_list = [
-    "markers", "markers_ref", "markers_fit", "markers_ref_fit", "trajectory_prop", "deformation"
-]
-
-def convert_units(data, to_convert_list=to_convert_list):
-    converted = {}
-    converted["markers"] = pixel2mm_coord(data["markers"])
-    converted["markers_ref"] = pixel2mm_coord(data["markers_ref"])
-    converted["markers_fit"] = pixel2mm_coord(data["markers_fit"])
-
-
-
 def main(datapath):
-    data = load_data(datapath)
+    data = load_data(datapath, scale=1, shift=(0, 0))
     print(data.keys())
-    # transformer_kasa = Transformer(
-    #     SI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=np.zeros(2), theta=data["rotkinematics_kasa"]["cage_Rx"]),
-    #     SA = mycoord.CoordTransformer2d(name="system_average", local_origin=np.zeros(2), theta=data["rotkinematics_kasa"]["cage_Rx_const"]),
-    #     CI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=data["markers_fit"]["kasa"], theta=data["rotkinematics_kasa"]["cage_Rx"]),
-    #     CA = mycoord.CoordTransformer2d(name="cage_average", local_origin=data["markers_fit"]["kasa"], theta=data["rotkinematics_kasa"]["cage_Rx"])
-    # )
-    # transformer_fitz = Transformer(
-    #     SI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=np.zeros(2), theta=data["rotkinematics_fitz"]["cage_Rx"]),
-    #     SA = mycoord.CoordTransformer2d(name="system_average", local_origin=np.zeros(2), theta=data["rotkinematics_fitz"]["cage_Rx_const"]),
-    #     CI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=data["markers_fit"]["fitz"], theta=data["rotkinematics_fitz"]["cage_Rx"]),
-    #     CA = mycoord.CoordTransformer2d(name="cage_average", local_origin=data["markers_fit"]["fitz"], theta=data["rotkinematics_fitz"]["cage_Rx_const"])
-    # )
-    # plotter = get_plotter()
+    transformer_kasa = Transformer(
+        SI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=np.zeros(2), theta=data["rotkinematics_kasa"]["cage_Rx"]),
+        SA = mycoord.CoordTransformer2d(name="system_average", local_origin=np.zeros(2), theta=data["rotkinematics_kasa"]["cage_Rx_const"]),
+        CI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=data["markers_fit"]["kasa"], theta=data["rotkinematics_kasa"]["cage_Rx"]),
+        CA = mycoord.CoordTransformer2d(name="cage_average", local_origin=data["markers_fit"]["kasa"], theta=data["rotkinematics_kasa"]["cage_Rx"])
+    )
+    transformer_fitz = Transformer(
+        SI = mycoord.CoordTransformer2d(name="system_instantaneous", local_origin=np.zeros(2), theta=data["rotkinematics_fitz"]["cage_Rx"]),
+        SA = mycoord.CoordTransformer2d(name="system_average", local_origin=np.zeros(2), theta=data["rotkinematics_fitz"]["cage_Rx_const"]),
+        CI = mycoord.CoordTransformer2d(name="cage_instantaneous", local_origin=data["markers_fit"]["fitz"], theta=data["rotkinematics_fitz"]["cage_Rx"]),
+        CA = mycoord.CoordTransformer2d(name="cage_average", local_origin=data["markers_fit"]["fitz"], theta=data["rotkinematics_fitz"]["cage_Rx_const"])
+    )
+    plotter = get_plotter()
+    markers_fit = data["markers_fit"]
 
-    # markers_fit = data["markers_fit"]
+    plotlist = [
+        {"axid": 0, "data": markers_fit["kasa"], "lw": 2, "color": 'k', "alpha": 0.5, "zorder": 2, "ls": '-'},
+        {"axid": 0, "data": markers_fit["fitz"], "lw": 1, "color": 'g', "alpha": 0.5, "zorder": 1, "ls": '-'},
+    ]
 
-    # plotlist = [
-    #     {"axid": 0, "data": markers_fit["kasa"], "lw": 2, "color": 'k', "alpha": 0.5, "zorder": 2, "ls": '-'},
-    #     {"axid": 0, "data": markers_fit["fitz"], "lw": 1, "color": 'g', "alpha": 0.5, "zorder": 1, "ls": '-'},
-    # ]
-
-    # plotter.trajectory(plotlist, frange=[0, 500], xyrange=3.2)
-
-    # plt.show()
-
-
-
+    plotter.trajectory(plotlist, frange=[0, 500], xyrange=3.2)
+    plt.show()
 
     return 0
 
@@ -142,23 +130,8 @@ if __name__ == '__main__':
 
     code = "ROT_REV"
     datadir = config.ROOT / "results" / "test" / "tmp"
-    # datadir = config.ROOT / "results" / "test_noise" / "tmp"
+    datadir = config.ROOT / "results" / "test_noise" / "tmp"
     datapath = list(datadir.glob(f"*{code}_data.pkl"))[0]
     print(f"datapath: {datapath}")
     main(datapath)
-
-
-
-    # plotter = get_plotter()
-    # fig, axs, log = plotter.trajectory(xyrange=(-10, 10))
-    # fig, axs, log = plotter.cagecoord_sound(yrange=[(-10, 10), (-10, 10), (0, 24)])
-    # fig, axs, log = plotter.cagecoord(yrange=[(-10, 10), (-10, 10)])
-    # fig, axs, log = plotter.spectrogram()
-
-    # fig, axs = plotter.trajectory(, xyrange=10)
-
-    # plt.show()
-
-
-
 

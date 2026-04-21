@@ -55,7 +55,7 @@ def make_input_list2(datadir, outdir, filepattern=r"tc*.txt"):
         else:
             markerfiles.append(f)
     inputlist = []
-    noise = 0
+    noise = 1
     if noise:
         _files = markerfiles_noise
     elif not noise:
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     # datadir = Path(r"N:\1005_tyn\tema\tc01_240610_40BNR10TYN_PA46GF25")
     datadir = Path(config.ROOT/"sampledata"/"SIMPLE50")
     # inputlist, info = make_input_list(datadir, outdir=outdir, filepattern=r"*.csv")
-    inputlist, info = make_input_list(datadir, outdir=outdir, filepattern=r"*.csv")
+    inputlist, info = make_input_list2(datadir, outdir=outdir, filepattern=r"*.csv")
     logger_parallel.binfo("#### input files")
     print(info)
     logger_parallel.binfo(f"zerofiles:\n{'\n'.join(map(str, info["zero_files"]))}")
