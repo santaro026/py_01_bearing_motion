@@ -120,6 +120,11 @@ def main(datapath):
     ]
 
     plotter.trajectory(plotlist, frange=[0, 500], xyrange=3.2)
+    kasa = data["markers_fit"]["kasa"]
+    fitz = data["markers_fit"]["fitz"]
+    plotter.timeseries3([data["time"]]*3, [kasa[:, 0], kasa[:, 1], kasa[:, 1]], yrange=(-3.2, 3.2), ytick=[1])
+    plotter.timeseries3([data["time"]]*3, [fitz[:, 0], fitz[:, 1], fitz[:, 1]], yrange=(-3.2, 3.2), ytick=[1])
+
     plt.show()
 
     return 0
@@ -130,7 +135,7 @@ if __name__ == '__main__':
 
     code = "ROT_REV"
     datadir = config.ROOT / "results" / "test" / "tmp"
-    datadir = config.ROOT / "results" / "test_noise" / "tmp"
+    # datadir = config.ROOT / "results" / "test_noise" / "tmp"
     datapath = list(datadir.glob(f"*{code}_data.pkl"))[0]
     print(f"datapath: {datapath}")
     main(datapath)

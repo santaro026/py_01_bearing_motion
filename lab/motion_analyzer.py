@@ -146,6 +146,9 @@ def calc_deformation(markers, markers_ref, fitting, fitting_ref):
 def analyze_cage(markers, markers_ref, fps, outdir=config.ROOT/"results"/"test", prefix=""):
     loggaer_cage_fitting = mylogger.MyLogger(f"{prefix}_analyze_cage", outdir=outdir)
     loggaer_cage_fitting.measure_time("main", mode='s')
+    num_frames, num_markers_cage, num_dimension = markers.shape
+    frame = np.arange(num_frames, dtype=np.int64)
+    t = frame / fps
     markers_fit = perform_cage_fitting(markers) # to convert
     markers_ref_fit = perform_cage_fitting(markers_ref) # to convert
     trajectory_prop = analyze_trajectory(markers_fit) # to convert
@@ -156,6 +159,8 @@ def analyze_cage(markers, markers_ref, fps, outdir=config.ROOT/"results"/"test",
     tmpdir = outdir / "tmp"
     tmpdir.mkdir(exist_ok=True, parents=True)
     pkldict = {
+        "frame": np.ascontiguousarray(frame).view([("frame", np.int64)]),
+        "time": np.ascontiguousarray(t).view([("time", np.float64)]),
         "markers": np.ascontiguousarray(markers).view(dtype_map["coord"]),
         "markers_ref": np.ascontiguousarray(markers_ref).view(dtype_map["coord"]),
         "markers_fit": markers_fit,
@@ -179,8 +184,8 @@ def analyze_cage(markers, markers_ref, fps, outdir=config.ROOT/"results"/"test",
     diff_kasa_fitz = markers_fit["kasa"][:, :2] - markers_fit["fitz"][:, :2]
     result_summary = {
         #### meta
-        "num_frames": markers.shape[0],
-        "num_markers_cage": markers.shape[1],
+        "num_frames": num_frames,
+        "num_markers_cage": num_markers_cage,
         #### fitting information
         "allclose_kasa_fitz": allclose_kasa_fitz,
         "diff_kasa_fitz": np.nanmax(diff_kasa_fitz),

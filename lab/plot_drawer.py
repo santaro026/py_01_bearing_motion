@@ -153,7 +153,7 @@ class PlotterForCageVisualization:
         st = min([times[i][0] for i in range(2)])
         et = max([times[i][0] for i in range(2)])
         margin = (et -st) * 0.05
-        xrange = (-margin + t[0], et - st + t[0] + margin)
+        xrange = (-margin + st, et + margin)
         plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.LANDSCAPE_FIG_21)
         fig, axs = plotter.myfig(xlabel=xlabel, ylabel=ylabel, xrange=xrange, yrange=yrange, ytick=ytick, ysigf=[2, 2, 0], sharex=[0, 0, 0], slide=slide)
         for i in range(2):
@@ -166,10 +166,10 @@ class PlotterForCageVisualization:
         return fig, axs
 
     def timeseries3(self, times, signals, frange=None, trange=None, skip=1, fps=1, yrange=[(-0.35, 0.35), (-0.35, 0.35), (0, 24)], ytick=[0.1, 0.1, 5], xlabel=["", "", "time [sec"], ylabel=[], slide=False):
-        st = min([times[i][0] for i in range(3)])
-        et = max([times[i][0] for i in range(3)])
+        st = np.nanmin(np.asarray(times))
+        et = np.nanmax(np.asarray(times))
         margin = (et -st) * 0.05
-        xrange = (-margin + t[0], et - st + t[0] + margin)
+        xrange = (-margin + st, et + margin)
         plotter = myplotter.MyPlotter(myplotter.PlotSizeCode.LANDSCAPE_FIG_31)
         fig, axs = plotter.myfig(xlabel=xlabel, ylabel=ylabel, xrange=xrange, yrange=yrange, ytick=ytick, ysigf=[2, 2, 0], sharex=[0, 0, 0], slide=slide)
         for i in range(3):
@@ -177,7 +177,7 @@ class PlotterForCageVisualization:
             s = signals[i]
             fps = 1 / (t[1] - t[0])
             t = self.slice_data(t, frange=frange, trange=trange, skip=skip, fps=fps)
-            s = self.slice_data(s, fps, frange=frange, trange=trange, skip=skip, fps=fps)
+            s = self.slice_data(s, frange=frange, trange=trange, skip=skip, fps=fps)
             axs[i].plot(t, s, lw=1, c='k', alpha=1)
         return fig, axs
 

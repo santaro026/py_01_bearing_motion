@@ -71,10 +71,6 @@ def make_input_list2(datadir, outdir, filepattern=r"tc*.txt"):
     }
     return inputlist, info
 
-def test_run(txt):
-    print("test_run\n==========")
-    print(str(txt))
-
 if __name__ == "__main__":
     print(f"---- run {__file__}----")
     multiprocessing.set_start_method("spawn") # for linux
